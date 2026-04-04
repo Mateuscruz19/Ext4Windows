@@ -1,0 +1,30 @@
+# Build
+build/
+out/
+cmake-build-*/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln.docstates
+CMakeSettings.json
+CMakeUserPresets.json
+
+# Compiled
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.a
+*.pdb
+*.ilk
+*.exp
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
