@@ -126,6 +126,28 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
     }
     dbg("Mount: ext4_mount OK");
 
+    // Journal recovery: replay any pending transactions from a previous
+    // unclean shutdown (e.g. power loss, crash). This is safe to call even
+    // if the filesystem has no journal — lwext4 simply returns EOK.
+    rc = ext4_recover(mount_point_.c_str());
+    if (rc != EOK && rc != ENOTSUP) {
+        dbg("Mount: ext4_recover failed rc=%d (non-fatal)", rc);
+    } else {
+        dbg("Mount: ext4_recover OK");
+    }
+
+    // Start journaling: wraps all future write operations in transactions
+    // so they can be rolled back if the system crashes mid-write.
+    // Transparent — does nothing if the filesystem has no journal feature.
+    if (!read_only) {
+        rc = ext4_journal_start(mount_point_.c_str());
+        if (rc != EOK) {
+            dbg("Mount: ext4_journal_start failed rc=%d (non-fatal)", rc);
+        } else {
+            dbg("Mount: ext4_journal_start OK");
+        }
+    }
+
     // Create WinFsp filesystem
     FSP_FSCTL_VOLUME_PARAMS volume_params;
     std::memset(&volume_params, 0, sizeof(volume_params));
@@ -133,7 +155,7 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
     volume_params.SectorSize = 512;
     volume_params.SectorsPerAllocationUnit = 8;  // 4KB allocation unit
     volume_params.MaxComponentLength = 255;
-    volume_params.FileInfoTimeout = 0;
+    volume_params.FileInfoTimeout = 1000;  // cache metadata for 1 second
     volume_params.CaseSensitiveSearch = FALSE;
     volume_params.CasePreservedNames = TRUE;
     volume_params.UnicodeOnDisk = TRUE;
@@ -207,6 +229,14 @@ void Ext4FileSystem::Unmount()
     deferred_delete_.clear();
 
     if (bdev_) {
+        // Stop journaling before unmount — flushes all pending transactions
+        // to disk, ensuring the filesystem is in a consistent state.
+        if (!read_only_) {
+            int rc = ext4_journal_stop(mount_point_.c_str());
+            dbg("Unmount: ext4_journal_stop rc=%d", rc);
+        }
+
+        ext4_cache_flush(mount_point_.c_str());
         ext4_umount(mount_point_.c_str());
         ext4_device_unregister(device_name_.c_str());
         bdev_ = nullptr;
