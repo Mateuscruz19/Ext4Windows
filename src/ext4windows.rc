@@ -1,0 +1,12 @@
+// Windows Resource File for Ext4Windows
+// This embeds the application icon into the .exe file.
+//
+// IDI_APPICON is the resource ID (just a number, 1 in this case).
+// The linker reads this file and packs the .ico into the final binary.
+// Windows then uses this icon for the .exe in Explorer, the taskbar, etc.
+//
+// Docs: https://learn.microsoft.com/en-us/windows/win32/menurc/about-resource-files
+
+// Icon resource: ID 1 = the main application icon
+#define IDI_APPICON 1
+IDI_APPICON ICON "../assets/ext4windows.ico"
