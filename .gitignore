@@ -28,3 +28,13 @@ CMakeUserPresets.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Test files
+*.img
+*.vhd
+*.diskpart
+test_*
+
+# Build scripts (local)
+build.bat
+build_now.bat
