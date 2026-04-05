@@ -13,6 +13,7 @@ extern "C" {
 #include <mutex>
 #include <set>
 #include <vector>
+#include <functional>
 
 // Context stored per open file/directory handle.
 struct Ext4FileContext {
@@ -29,7 +30,7 @@ public:
     ~Ext4FileSystem();
 
     NTSTATUS Mount(struct ext4_blockdev* bdev, const wchar_t* mount_point,
-                   bool read_only);
+                   bool read_only, char instance_id = 'A');
     void Unmount();
 
 private:
@@ -107,9 +108,16 @@ private:
     FSP_FILE_SYSTEM_INTERFACE iface_ = {};
     struct ext4_blockdev* bdev_ = nullptr;
     bool read_only_ = true;
-    std::mutex ext4_mutex_;
     std::set<void*> valid_contexts_;        // Track open contexts to detect double-close
     std::vector<void*> deferred_delete_;    // Contexts waiting to be freed safely
 
-    static const char* MOUNT_POINT;
+    // Per-instance lwext4 identifiers (e.g. "ext4dev_Z", "/mnt_Z")
+    // Each instance gets unique names to avoid collisions when multiple
+    // filesystems are mounted simultaneously.
+    std::string device_name_;   // lwext4 device registration name
+    std::string mount_point_;   // lwext4 internal mount point (NOT the Windows drive)
+
+    // lwext4 uses global internal state, so ALL instances must share
+    // one mutex to prevent concurrent access from corrupting it.
+    static std::mutex& global_ext4_mutex();
 };

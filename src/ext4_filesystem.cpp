@@ -6,7 +6,14 @@
 #include <algorithm>
 #include <vector>
 
-const char* Ext4FileSystem::MOUNT_POINT = "/";
+// Global mutex shared by ALL Ext4FileSystem instances.
+// lwext4 uses global internal state (mount table, device registry),
+// so concurrent access from multiple instances would corrupt it.
+std::mutex& Ext4FileSystem::global_ext4_mutex()
+{
+    static std::mutex mtx;
+    return mtx;
+}
 
 // Convert wide string (UTF-16) to UTF-8
 std::string Ext4FileSystem::WideToUtf8(const wchar_t* wide)
@@ -23,7 +30,9 @@ std::string Ext4FileSystem::WideToUtf8(const wchar_t* wide)
     return result;
 }
 
-// Convert Windows path (backslashes) to ext4 path (forward slashes)
+// Convert Windows path (backslashes) to ext4 path (forward slashes).
+// Prepends the per-instance lwext4 mount point so that "/hello.txt"
+// becomes "/mnt_Z/hello.txt" (where Z is the instance ID).
 std::string Ext4FileSystem::ToExt4Path(const wchar_t* win_path)
 {
     std::string path = WideToUtf8(win_path);
@@ -35,7 +44,16 @@ std::string Ext4FileSystem::ToExt4Path(const wchar_t* win_path)
     if (path.empty() || path[0] != '/')
         path = "/" + path;
 
-    return path;
+    // Prepend mount point: "/mnt_Z/" + "hello.txt" = "/mnt_Z/hello.txt"
+    // For root: just return "/mnt_Z/"
+    // mount_point_ already ends with "/" (e.g. "/mnt_Z/")
+    if (path == "/")
+        return mount_point_;
+
+    // Strip leading "/" from path since mount_point_ already ends with "/"
+    if (path[0] == '/')
+        path = path.substr(1);
+    return mount_point_ + path;
 }
 
 Ext4FileSystem* Ext4FileSystem::GetSelf(FSP_FILE_SYSTEM* FileSystem)
@@ -72,27 +90,39 @@ Ext4FileSystem::~Ext4FileSystem()
 }
 
 NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_point,
-                                bool read_only)
+                                bool read_only, char instance_id)
 {
     bdev_ = bdev;
     read_only_ = read_only;
 
-    dbg("Mount: read_only=%d", (int)read_only);
+    // Generate unique lwext4 names for this instance so multiple
+    // filesystems can be mounted simultaneously without collisions.
+    device_name_ = std::string("ext4dev_") + instance_id;
+    mount_point_ = std::string("/mnt_") + instance_id + "/";
+
+    dbg("Mount: read_only=%d device=%s lwext4_mount=%s",
+        (int)read_only, device_name_.c_str(), mount_point_.c_str());
 
     // Register and mount via lwext4
-    int rc = ext4_device_register(bdev_, "ext4dev");
+    dbg("Mount: calling ext4_device_register('%s')", device_name_.c_str());
+    int rc = ext4_device_register(bdev_, device_name_.c_str());
     if (rc != EOK) {
         dbg("Mount: ext4_device_register failed rc=%d", rc);
         bdev_ = nullptr;
         return STATUS_UNSUCCESSFUL;
     }
+    dbg("Mount: device registered OK");
 
-    rc = ext4_mount("ext4dev", MOUNT_POINT, read_only);
+    dbg("Mount: calling ext4_mount('%s', '%s', %d)",
+        device_name_.c_str(), mount_point_.c_str(), (int)read_only);
+    rc = ext4_mount(device_name_.c_str(), mount_point_.c_str(), read_only);
     if (rc != EOK) {
-        ext4_device_unregister("ext4dev");
+        dbg("Mount: ext4_mount failed rc=%d", rc);
+        ext4_device_unregister(device_name_.c_str());
         bdev_ = nullptr;
         return STATUS_UNSUCCESSFUL;
     }
+    dbg("Mount: ext4_mount OK");
 
     // Create WinFsp filesystem
     FSP_FSCTL_VOLUME_PARAMS volume_params;
@@ -112,6 +142,7 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
     wcscpy_s(volume_params.FileSystemName,
              sizeof(volume_params.FileSystemName) / sizeof(WCHAR), L"ext4");
 
+    dbg("Mount: calling FspFileSystemCreate");
     NTSTATUS status = FspFileSystemCreate(
         const_cast<PWSTR>(L"" FSP_FSCTL_DISK_DEVICE_NAME),
         &volume_params,
@@ -119,35 +150,43 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
         &fs_);
 
     if (!NT_SUCCESS(status)) {
-        ext4_umount(MOUNT_POINT);
-        ext4_device_unregister("ext4dev");
+        dbg("Mount: FspFileSystemCreate failed status=0x%08lX", status);
+        ext4_umount(mount_point_.c_str());
+        ext4_device_unregister(device_name_.c_str());
         bdev_ = nullptr;
         return status;
     }
+    dbg("Mount: FspFileSystemCreate OK");
 
     fs_->UserContext = this;
 
+    dbg("Mount: calling FspFileSystemSetMountPoint('%ls')", mount_point);
     status = FspFileSystemSetMountPoint(fs_, const_cast<PWSTR>(mount_point));
     if (!NT_SUCCESS(status)) {
+        dbg("Mount: FspFileSystemSetMountPoint failed status=0x%08lX", status);
         FspFileSystemDelete(fs_);
         fs_ = nullptr;
-        ext4_umount(MOUNT_POINT);
-        ext4_device_unregister("ext4dev");
+        ext4_umount(mount_point_.c_str());
+        ext4_device_unregister(device_name_.c_str());
         bdev_ = nullptr;
         return status;
     }
+    dbg("Mount: FspFileSystemSetMountPoint OK");
 
     // Use 1 dispatcher thread. lwext4 is not thread-safe, so concurrent
-    // callbacks corrupt its internal state. A mutex protects all calls.
+    // callbacks corrupt its internal state. A global mutex protects all calls.
+    dbg("Mount: calling FspFileSystemStartDispatcher");
     status = FspFileSystemStartDispatcher(fs_, 1);
     if (!NT_SUCCESS(status)) {
+        dbg("Mount: FspFileSystemStartDispatcher failed status=0x%08lX", status);
         FspFileSystemDelete(fs_);
         fs_ = nullptr;
-        ext4_umount(MOUNT_POINT);
-        ext4_device_unregister("ext4dev");
+        ext4_umount(mount_point_.c_str());
+        ext4_device_unregister(device_name_.c_str());
         bdev_ = nullptr;
         return status;
     }
+    dbg("Mount: FspFileSystemStartDispatcher OK");
 
     return STATUS_SUCCESS;
 }
@@ -166,8 +205,8 @@ void Ext4FileSystem::Unmount()
     deferred_delete_.clear();
 
     if (bdev_) {
-        ext4_umount(MOUNT_POINT);
-        ext4_device_unregister("ext4dev");
+        ext4_umount(mount_point_.c_str());
+        ext4_device_unregister(device_name_.c_str());
         bdev_ = nullptr;
     }
 }
@@ -178,12 +217,12 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetVolumeInfo(FSP_FILE_SYSTEM* FileSystem,
     FSP_FSCTL_VOLUME_INFO* VolumeInfo)
 {
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     dbg("GetVolumeInfo");
     struct ext4_mount_stats stats;
     std::memset(&stats, 0, sizeof(stats));
 
-    int rc = ext4_mount_point_stats(MOUNT_POINT, &stats);
+    int rc = ext4_mount_point_stats(self->mount_point_.c_str(), &stats);
     if (rc != EOK)
         return STATUS_UNSUCCESSFUL;
 
@@ -264,7 +303,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetSecurityByName(FSP_FILE_SYSTEM* FileSystem,
 {
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     std::string path = self->ToExt4Path(FileName);
     dbg("GetSecurityByName: '%s'", path.c_str());
     // Check if the file/directory exists and get attributes
@@ -315,7 +354,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnCreate(FSP_FILE_SYSTEM* FileSystem,
     PVOID* PFileContext, FSP_FSCTL_FILE_INFO* FileInfo)
 {
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
 
     // NOTE: We intentionally do NOT free deferred_delete_ contexts here.
     // Freeing memory allows 'new' to reuse the same address, which causes
@@ -367,7 +406,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnOverwrite(FSP_FILE_SYSTEM* FileSystem,
 {
     // Overwrite: truncate existing file to 0 bytes and reopen for writing.
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx || ctx->is_directory)
         return STATUS_INVALID_DEVICE_REQUEST;
@@ -393,7 +432,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnOpen(FSP_FILE_SYSTEM* FileSystem,
 {
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
 
     // NOTE: We intentionally do NOT free deferred_delete_ contexts here.
     // See OnCreate comment for the ABA problem explanation.
@@ -442,7 +481,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnOpen(FSP_FILE_SYSTEM* FileSystem,
 VOID NTAPI Ext4FileSystem::OnClose(FSP_FILE_SYSTEM* FileSystem, PVOID FileContext)
 {
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx) return;
 
@@ -469,7 +508,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnRead(FSP_FILE_SYSTEM* FileSystem,
 {
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx || ctx->is_directory)
         return STATUS_INVALID_DEVICE_REQUEST;
@@ -512,7 +551,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnWrite(FSP_FILE_SYSTEM* FileSystem,
     PULONG PBytesTransferred, FSP_FSCTL_FILE_INFO* FileInfo)
 {
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx || ctx->is_directory)
         return STATUS_INVALID_DEVICE_REQUEST;
@@ -568,7 +607,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnReadDirectory(FSP_FILE_SYSTEM* FileSystem,
 {
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx || !ctx->is_directory)
         return STATUS_INVALID_DEVICE_REQUEST;
@@ -651,7 +690,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetFileInfo(FSP_FILE_SYSTEM* FileSystem,
 {
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx) return STATUS_INVALID_HANDLE;
     std::string path = self->ToExt4Path(ctx->path.c_str());
@@ -669,7 +708,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnSetBasicInfo(FSP_FILE_SYSTEM* FileSystem,
 {
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
 
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx) return STATUS_INVALID_HANDLE;
@@ -710,7 +749,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnSetFileSize(FSP_FILE_SYSTEM* FileSystem,
 {
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
 
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx || ctx->is_directory)
@@ -745,7 +784,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnCanDelete(FSP_FILE_SYSTEM* FileSystem,
 {
     // Check if a file/directory can be deleted (directories must be empty).
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx) return STATUS_INVALID_HANDLE;
     dbg("CanDelete: '%ls' is_dir=%d", ctx->path.c_str(), (int)ctx->is_directory);
@@ -792,7 +831,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnRename(FSP_FILE_SYSTEM* FileSystem,
     // lwext4 cannot rename a file while it has an open handle, so we must
     // close the handle first, perform the rename, then reopen with the new path.
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
 
     // Use ctx->path for the old path — WinFsp may pass FileName in
@@ -839,10 +878,10 @@ NTSTATUS NTAPI Ext4FileSystem::OnFlush(FSP_FILE_SYSTEM* FileSystem,
 {
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     dbg("Flush");
     if (!self->read_only_)
-        ext4_cache_flush(MOUNT_POINT);
+        ext4_cache_flush(self->mount_point_.c_str());
 
     if (FileContext && FileInfo) {
         auto* ctx = static_cast<Ext4FileContext*>(FileContext);
@@ -861,7 +900,7 @@ VOID NTAPI Ext4FileSystem::OnCleanup(FSP_FILE_SYSTEM* FileSystem,
         return;
 
     auto* self = GetSelf(FileSystem);
-    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::lock_guard<std::mutex> lock(Ext4FileSystem::global_ext4_mutex());
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     std::string path = self->ToExt4Path(ctx->path.c_str());
     dbg("Cleanup: '%s' flags=0x%lx delete=%d",
@@ -876,7 +915,7 @@ VOID NTAPI Ext4FileSystem::OnCleanup(FSP_FILE_SYSTEM* FileSystem,
         else
             ext4_fremove(path.c_str());
 
-        ext4_cache_flush(MOUNT_POINT);
+        ext4_cache_flush(self->mount_point_.c_str());
         ctx->closed = true;
     }
 
