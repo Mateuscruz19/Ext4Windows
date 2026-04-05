@@ -29,7 +29,13 @@ private:
     MountManager& manager_;
     HICON icon_ = nullptr;
 
+    // Check if auto-start is currently enabled (registry Run key)
+    bool IsAutoStartEnabled();
+    // Toggle auto-start on/off
+    void ToggleAutoStart();
+
     static const UINT WM_TRAYICON = WM_APP + 1;
     static const UINT IDM_QUIT = 40000;
+    static const UINT IDM_AUTOSTART = 40001;
     static const UINT IDM_UNMOUNT_BASE = 41000;  // 41000 + index
 };

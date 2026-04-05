@@ -141,6 +141,14 @@ void TrayIcon::ShowContextMenu()
     }
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+
+    // Auto-start toggle: adds/removes a Windows Registry "Run" key
+    // so the server starts automatically on login.
+    // MF_CHECKED shows a checkmark next to the item if enabled.
+    bool autostart = IsAutoStartEnabled();
+    AppendMenuW(menu, MF_STRING | (autostart ? MF_CHECKED : 0),
+                IDM_AUTOSTART, L"Start on login");
+
     AppendMenuW(menu, MF_STRING, IDM_QUIT, L"Quit");
 
     // Show the menu at the cursor position
@@ -176,6 +184,11 @@ LRESULT CALLBACK TrayIcon::WndProc(HWND hwnd, UINT msg,
             return 0;
         }
 
+        if (cmd_id == IDM_AUTOSTART) {
+            g_tray_instance->ToggleAutoStart();
+            return 0;
+        }
+
         // Unmount commands: IDM_UNMOUNT_BASE + index
         if (cmd_id >= IDM_UNMOUNT_BASE && cmd_id < IDM_UNMOUNT_BASE + 26) {
             UINT idx = cmd_id - IDM_UNMOUNT_BASE;
@@ -202,4 +215,95 @@ LRESULT CALLBACK TrayIcon::WndProc(HWND hwnd, UINT msg,
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ── Auto-start on login ─────────────────────────────────
+// Uses the Windows Registry "Run" key to start the server
+// automatically when the user logs in.
+//
+// The registry key is:
+//   HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+//
+// This is the same place where apps like Steam, Discord, etc.
+// register themselves to start on login. Each value in this key
+// is a program path that Windows runs automatically.
+//
+// HKEY_CURRENT_USER means it only applies to THIS user (no admin
+// needed). HKEY_LOCAL_MACHINE\...\Run would apply to all users
+// but requires admin.
+//
+// In Python, this would be like:
+//   import winreg
+//   key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+//         r"Software\Microsoft\Windows\CurrentVersion\Run",
+//         0, winreg.KEY_SET_VALUE)
+//   winreg.SetValueEx(key, "Ext4Windows", 0, winreg.REG_SZ, exe_path)
+//
+// Docs: https://learn.microsoft.com/en-us/windows/win32/api/winreg/
+//       nf-winreg-regsetvalueexw
+// Docs: https://learn.microsoft.com/en-us/windows/win32/setupapi/
+//       run-and-runonce-registry-keys
+
+// Registry path and value name
+static const wchar_t* RUN_KEY =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+static const wchar_t* RUN_VALUE = L"Ext4Windows";
+
+bool TrayIcon::IsAutoStartEnabled()
+{
+    // Try to read the registry value. If it exists, auto-start is enabled.
+    // RegGetValueW is a simpler wrapper around RegQueryValueExW.
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/api/winreg/
+    //       nf-winreg-reggetvaluew
+    DWORD size = 0;
+    LONG result = RegGetValueW(
+        HKEY_CURRENT_USER, RUN_KEY, RUN_VALUE,
+        RRF_RT_REG_SZ,    // Only accept REG_SZ (string) type
+        nullptr,           // Don't need the type
+        nullptr,           // Don't need the data (just checking existence)
+        &size);            // Size of the data
+
+    return result == ERROR_SUCCESS;
+}
+
+void TrayIcon::ToggleAutoStart()
+{
+    if (IsAutoStartEnabled()) {
+        // Remove the registry value → disable auto-start
+        // RegDeleteKeyValueW deletes a specific value from a key.
+        // Docs: https://learn.microsoft.com/en-us/windows/win32/api/winreg/
+        //       nf-winreg-regdeletekeyvaluew
+        HKEY key;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0,
+                          KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
+            RegDeleteValueW(key, RUN_VALUE);
+            RegCloseKey(key);
+            dbg("AutoStart: disabled");
+        }
+    } else {
+        // Add the registry value → enable auto-start
+        // Get the path to our own exe
+        wchar_t exe_path[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+
+        // The value is: "path\to\ext4windows.exe" --server
+        // This tells Windows to run our server on login.
+        std::wstring cmd = L"\"";
+        cmd += exe_path;
+        cmd += L"\" --server";
+
+        HKEY key;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0,
+                          KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
+            // RegSetValueExW sets a registry value.
+            // REG_SZ = null-terminated string type.
+            // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+            //       winreg/nf-winreg-regsetvalueexw
+            RegSetValueExW(key, RUN_VALUE, 0, REG_SZ,
+                reinterpret_cast<const BYTE*>(cmd.c_str()),
+                static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t)));
+            RegCloseKey(key);
+            dbg("AutoStart: enabled → %ls", cmd.c_str());
+        }
+    }
 }
