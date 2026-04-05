@@ -321,16 +321,19 @@ The server creates a **system tray icon** (notification area) using pure Win32 A
 ### Prerequisites
 
 - **Windows 10 or 11** (64-bit)
-- **[WinFsp](https://winfsp.dev/rel/)** — download and install the latest release
 
 ### Download
 
-Download the latest version from the [**Releases page**](https://github.com/Mateuscruz19/Ext4Windows/releases/latest):
+<p align="center">
+  <a href="https://github.com/Mateuscruz19/Ext4Windows/releases/latest">
+    <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_Download-Ext4Windows_v1.0.0-F5841F?style=for-the-badge&labelColor=1B1464" alt="Download Ext4Windows" height="50">
+  </a>
+</p>
 
 | Download | Description |
 |:---------|:------------|
-| **Ext4Windows-setup.exe** | Installer — installs WinFsp automatically if needed |
-| **Ext4Windows-portable.zip** | Portable — extract and run (requires WinFsp installed) |
+| **Ext4Windows-setup.exe** | Installer — installs everything automatically (recommended) |
+| **Ext4Windows-portable.zip** | Portable — extract and run (requires [WinFsp](https://winfsp.dev/rel/) installed) |
 
 ### Verify it works
 
@@ -401,27 +404,32 @@ This script automatically sets up the VS environment and builds.
 
 ```
 Ext4Windows/
-├── assets/                    # Logo and visual assets
-│   ├── ext4windows.ico        # Application icon (multi-size)
-│   ├── logo_icon.png          # Logo without text
-│   └── logo_with_text.png     # Logo with "Ext4Windows" text
+├── .github/workflows/         # CI/CD (build, test, release)
+├── assets/                    # Logo, icons, screenshots
 ├── cmake/                     # CMake modules (FindWinFsp)
+├── docs/                      # Translated READMEs (7 languages)
 ├── external/
-│   └── lwext4/                # lwext4 submodule (ext4 implementation)
+│   ├── lwext4/                # lwext4 submodule (ext4 implementation)
+│   └── catch2/                # Catch2 test framework (amalgamated)
+├── installer/
+│   └── ext4windows.iss        # Inno Setup script (auto-installs WinFsp)
 ├── src/
 │   ├── main.cpp               # Entry point and argument routing
 │   ├── ext4_filesystem.cpp/hpp  # WinFsp filesystem callbacks
 │   ├── server.cpp/hpp         # Background server + MountManager
 │   ├── client.cpp/hpp         # CLI client
 │   ├── tray_icon.cpp/hpp      # System tray icon (Win32)
+│   ├── interactive.cpp/hpp    # Interactive terminal mode (8 languages)
 │   ├── pipe_protocol.hpp      # Named Pipe IPC protocol
 │   ├── blockdev_file.cpp/hpp  # Block device from .img file
 │   ├── blockdev_partition.cpp/hpp  # Block device from raw partition
 │   ├── partition_scanner.cpp/hpp   # Ext4 partition auto-detection
 │   ├── debug_log.hpp          # Debug logging utilities
 │   └── ext4windows.rc         # Windows resource file (icon)
+├── tests/                     # 110 tests (Catch2)
 ├── CMakeLists.txt             # Build configuration
-├── build.bat                  # Quick build script
+├── CHANGELOG.md               # Version history
+├── CONTRIBUTING.md            # Contribution guidelines
 └── LICENSE                    # GPL-2.0
 ```
 
@@ -561,39 +569,38 @@ ctest --output-on-failure
 
 ## Roadmap
 
-### Done
+### v1.0.0 — Complete
 
 - [x] Mount ext4 image files as Windows drive letters
-- [x] Full read support — files, directories, symlinks
-- [x] Full write support — create, edit, delete, copy, rename
-- [x] Auto-detect ext4 partitions on physical disks
+- [x] Full read & write support — files, directories, symlinks
+- [x] Mount raw partitions from physical disks
+- [x] Auto-detect ext4 partitions with `scan`
 - [x] Client-server architecture with background daemon
 - [x] System tray icon with context menu
 - [x] Multiple simultaneous mounts
-- [x] Named Pipe IPC protocol
+- [x] Named Pipe IPC protocol (SDDL secured)
 - [x] Auto-start server on first mount
+- [x] Auto-start on login (Windows Registry Run key)
 - [x] Ghost mount detection (auto-cleanup on eject)
+- [x] File timestamps (ext4 crtime/atime/mtime/ctime → Windows)
+- [x] Linux permission mapping (ext4 mode → Windows attributes)
+- [x] Journaling support (ext4_recover + ext4_journal_start/stop)
+- [x] Performance optimization (512KB block cache + WinFsp caching)
+- [x] Large file support (>4GB with 64-bit block calculations)
+- [x] Settings panel (terminal-based, persisted to config file)
+- [x] 8-language interactive mode
 - [x] Debug logging (console + file)
 - [x] Custom application icon
+- [x] Installer with automatic WinFsp setup
+- [x] CI/CD pipeline (GitHub Actions)
+- [x] Security audit (ASan, CppCheck, MSVC /analyze, CRT leak check)
+- [x] Test suite (110 tests, 1359 assertions)
 
-### In Progress
+### Future Ideas
 
-(nothing currently)
-
-### Recently Completed
-
-- [x] Mount raw partitions via client-server (MOUNT_PARTITION + SCAN commands)
-- [x] Linux permission mapping (ext4 mode bits → Windows attributes & ACLs)
-- [x] Auto-start on login (Windows Registry Run key)
-- [x] File timestamps (ext4 crtime/atime/mtime/ctime → Windows creation/access/write/change)
-- [x] Journaling support (ext4_recover + ext4_journal_start/stop)
-- [x] Performance optimization (512KB block cache + WinFsp metadata caching)
-- [x] Large file support (>4GB with 64-bit block calculations)
-- [x] Installer (Inno Setup) and portable release (.zip)
-
-### Planned
-
-- [x] Settings panel (terminal-based, persisted to config file)
+- [ ] GUI with Qt 6
+- [ ] ext4 encryption support
+- [ ] Drag-and-drop `.img` files onto the exe to mount
 
 <br>
 

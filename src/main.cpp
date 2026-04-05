@@ -222,8 +222,8 @@ static void print_help_text()
         "  3. Navegue seus arquivos Linux no Explorador!"));
     printf("\n");
     printf("  %s\n", tr(
-        "  Currently read-only. Your files are safe.",
-        "  Atualmente somente leitura. Seus arquivos estao seguros."));
+        "  Supports read-only and read-write modes.",
+        "  Suporta modos somente leitura e leitura/escrita."));
     printf("\n");
     printf("  --------------------------------------------------------\n");
     printf("\n");
