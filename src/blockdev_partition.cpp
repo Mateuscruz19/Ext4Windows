@@ -96,6 +96,10 @@ static int part_bread(struct ext4_blockdev* bdev, void* buf, uint64_t blk_id,
         return EIO;
     }
 
+    // Guard against integer overflow: blk_cnt * BLOCK_SIZE
+    if (blk_cnt > 0xFFFFFFFFULL / BLOCK_SIZE)
+        return ENOMEM;
+
     DWORD bytes_to_read = static_cast<DWORD>(blk_cnt) * BLOCK_SIZE;
     DWORD bytes_read = 0;
 
@@ -139,6 +143,10 @@ static int part_bwrite(struct ext4_blockdev* bdev, const void* buf,
 
     if (!SetFilePointerEx(data->handle, offset, nullptr, FILE_BEGIN))
         return EIO;
+
+    // Guard against integer overflow: blk_cnt * BLOCK_SIZE
+    if (blk_cnt > 0xFFFFFFFFULL / BLOCK_SIZE)
+        return ENOMEM;
 
     DWORD bytes_to_write = static_cast<DWORD>(blk_cnt) * BLOCK_SIZE;
     DWORD bytes_written = 0;
@@ -209,7 +217,8 @@ struct ext4_blockdev* create_partition_blockdev_from_handle(void* handle,
 {
     auto* data = new partition_blockdev_data{};
 
-    wcscpy(data->path, L"(inherited handle)");
+    wcsncpy(data->path, L"(inherited handle)", 255);
+    data->path[255] = L'\0';
     data->handle = static_cast<HANDLE>(handle);
     data->read_only = read_only;
 

@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <sddl.h>
 #include <thread>
 
 // --- MountManager ---
@@ -313,6 +314,22 @@ void MountManager::NotifyTray()
         tray_->Update();
 }
 
+// --- Path & Input Validation ---
+
+static bool is_valid_drive_letter(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
+static bool path_contains_traversal(const std::string& path)
+{
+    // Reject directory traversal sequences
+    if (path.find("..") != std::string::npos) return true;
+    // Reject null bytes (could truncate path in C APIs)
+    if (path.find('\0') != std::string::npos) return true;
+    return false;
+}
+
 // --- Command Dispatcher ---
 
 static std::string dispatch_command(MountManager& manager,
@@ -334,12 +351,22 @@ static std::string dispatch_command(MountManager& manager,
         if (source.empty() || drive_str.empty())
             return "ERROR Usage: MOUNT <source_path> <drive_letter> [RW]";
 
+        if (!is_valid_drive_letter(drive_str[0]))
+            return "ERROR Invalid drive letter";
+
+        if (path_contains_traversal(source))
+            return "ERROR Path contains invalid sequences";
+
         wchar_t drive_letter = static_cast<wchar_t>(drive_str[0]);
+        if (drive_letter >= L'a') drive_letter -= 32;
         bool read_write = (rw_flag == "RW");
 
         // Convert source path to wide string
         int wlen = MultiByteToWideChar(CP_UTF8, 0, source.c_str(), -1,
                                         nullptr, 0);
+        if (wlen <= 0)
+            return "ERROR Invalid path encoding";
+
         std::wstring wsource(wlen - 1, L'\0');
         MultiByteToWideChar(CP_UTF8, 0, source.c_str(), -1,
                              wsource.data(), wlen);
@@ -363,7 +390,14 @@ static std::string dispatch_command(MountManager& manager,
         if (device_path.empty() || drive_str.empty())
             return "ERROR Usage: MOUNT_PARTITION <drive_letter> <RW|RO> <device_path>";
 
+        if (!is_valid_drive_letter(drive_str[0]))
+            return "ERROR Invalid drive letter";
+
+        if (path_contains_traversal(device_path))
+            return "ERROR Path contains invalid sequences";
+
         wchar_t drive_letter = static_cast<wchar_t>(drive_str[0]);
+        if (drive_letter >= L'a') drive_letter -= 32;
         bool read_write = (rw_flag == "RW");
 
         // Convert device path to wide string
@@ -406,6 +440,20 @@ static void pipe_server_thread(MountManager& manager)
 {
     dbg("Pipe server thread started");
 
+    // Build a security descriptor that restricts pipe access to the
+    // current user only. Without this, any user on the system could
+    // connect and issue mount commands (privilege escalation risk).
+    // SDDL: D:(A;;GA;;;CU) = Allow Generic All to Creator/Owner User
+    SECURITY_ATTRIBUTES sa = {};
+    sa.nLength = sizeof(sa);
+    PSECURITY_DESCRIPTOR psd = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:(A;;GA;;;CU)", SDDL_REVISION_1, &psd, nullptr)) {
+        dbg("WARNING: could not create pipe security descriptor, "
+            "falling back to default");
+    }
+    sa.lpSecurityDescriptor = psd;
+
     while (!manager.QuitRequested()) {
         // Create a named pipe instance and wait for a client
         HANDLE pipe = CreateNamedPipeW(
@@ -416,7 +464,7 @@ static void pipe_server_thread(MountManager& manager)
             PIPE_BUFFER_SIZE,
             PIPE_BUFFER_SIZE,
             0,                  // Default timeout
-            nullptr);
+            psd ? &sa : nullptr);
 
         if (pipe == INVALID_HANDLE_VALUE) {
             dbg("CreateNamedPipe failed: %lu", GetLastError());
@@ -452,6 +500,7 @@ static void pipe_server_thread(MountManager& manager)
         dbg("Pipe: client disconnected, waiting for next");
     }
 
+    if (psd) LocalFree(psd);
     dbg("Pipe server thread exiting");
 }
 

@@ -40,8 +40,8 @@ static bool start_server()
     PROCESS_INFORMATION pi = {};
 
     BOOL ok = CreateProcessW(
-        nullptr,
-        const_cast<LPWSTR>(cmd.c_str()),
+        exe_path,       // Use explicit exe path (not NULL) to prevent
+        const_cast<LPWSTR>(cmd.c_str()),  // PATH search hijacking
         nullptr, nullptr,
         FALSE,
         DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
