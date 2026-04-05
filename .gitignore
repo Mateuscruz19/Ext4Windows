@@ -35,6 +35,9 @@ Desktop.ini
 *.diskpart
 test_*
 
+# Release artifacts
+*.zip
+
 # Build scripts (local)
 build.bat
 build_now.bat

@@ -478,11 +478,11 @@ Ext4Windows/
 - [x] File timestamps (ext4 crtime/atime/mtime/ctime → Windows creation/access/write/change)
 - [x] Journaling support (ext4_recover + ext4_journal_start/stop)
 - [x] Performance optimization (512KB block cache + WinFsp metadata caching)
+- [x] Large file support (>4GB with 64-bit block calculations)
+- [x] Installer (Inno Setup) and portable release (.zip)
 
 ### Planned
 
-- [ ] Installer / portable release (.zip)
-- [ ] Large file support (>4GB files on ext4)
 - [ ] GUI settings panel
 
 <br>
