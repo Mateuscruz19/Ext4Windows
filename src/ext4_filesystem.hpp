@@ -12,11 +12,13 @@ extern "C" {
 #include <string>
 #include <mutex>
 #include <set>
+#include <vector>
 
 // Context stored per open file/directory handle.
 struct Ext4FileContext {
     std::wstring path;
     bool is_directory;
+    bool closed;         // Set by OnCleanup+delete; OnClose just frees memory
     ext4_file file;      // Used for files
     ext4_dir dir;        // Used for directories
 };
@@ -106,7 +108,8 @@ private:
     struct ext4_blockdev* bdev_ = nullptr;
     bool read_only_ = true;
     std::mutex ext4_mutex_;
-    std::set<void*> valid_contexts_;  // Track open contexts to detect double-close
+    std::set<void*> valid_contexts_;        // Track open contexts to detect double-close
+    std::vector<void*> deferred_delete_;    // Contexts waiting to be freed safely
 
     static const char* MOUNT_POINT;
 };
