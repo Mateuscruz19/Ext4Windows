@@ -474,11 +474,11 @@ Ext4Windows/
 
 - [ ] Installer / portable release (.zip)
 - [ ] Journaling support for crash safety
-- [ ] Linux permission mapping (uid/gid → Windows ACLs)
+- [x] Linux permission mapping (ext4 mode bits → Windows attributes & ACLs)
+- [x] Auto-start on login (Windows Registry Run key)
 - [ ] File timestamp preservation (ctime/mtime/atime)
 - [ ] Large file support (>4GB files on ext4)
 - [ ] Performance optimization (read-ahead caching)
-- [ ] Auto-mount on startup (Windows service)
 - [ ] GUI settings panel
 
 <br>
