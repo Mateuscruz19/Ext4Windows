@@ -30,10 +30,10 @@ static int file_open(struct ext4_blockdev* bdev)
             return EIO;
     }
 
-    // Get file size
-    fseek(data->file, 0, SEEK_END);
-    long size = ftell(data->file);
-    fseek(data->file, 0, SEEK_SET);
+    // Get file size (use 64-bit seek/tell for files >2GB)
+    _fseeki64(data->file, 0, SEEK_END);
+    int64_t size = _ftelli64(data->file);
+    _fseeki64(data->file, 0, SEEK_SET);
 
     if (size <= 0)
         return EIO;
