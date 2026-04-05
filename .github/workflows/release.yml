@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install WinFsp
+        run: choco install winfsp -y
+
+      - name: Configure
+        run: cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -B build -S .
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Prepare release artifacts
+        run: |
+          mkdir release
+          copy build\ext4windows.exe release\
+          copy build\winfsp-x64.dll release\
+
+      - name: Create zip
+        run: Compress-Archive -Path release\* -DestinationPath Ext4Windows-${{ github.ref_name }}-portable.zip
+        shell: pwsh
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Ext4Windows-${{ github.ref_name }}-portable.zip
+            release/ext4windows.exe
+          generate_release_notes: true
