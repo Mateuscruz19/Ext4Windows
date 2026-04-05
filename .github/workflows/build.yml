@@ -31,4 +31,4 @@ jobs:
 
       - name: Run unit tests
         working-directory: build/tests
-        run: ctest --output-on-failure --exclude-regex "test_blockdev"
+        run: ctest --output-on-failure --exclude-regex "blockdev"
