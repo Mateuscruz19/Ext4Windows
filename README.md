@@ -476,13 +476,13 @@ Ext4Windows/
 - [x] Linux permission mapping (ext4 mode bits → Windows attributes & ACLs)
 - [x] Auto-start on login (Windows Registry Run key)
 - [x] File timestamps (ext4 crtime/atime/mtime/ctime → Windows creation/access/write/change)
+- [x] Journaling support (ext4_recover + ext4_journal_start/stop)
+- [x] Performance optimization (512KB block cache + WinFsp metadata caching)
 
 ### Planned
 
 - [ ] Installer / portable release (.zip)
-- [ ] Journaling support for crash safety
 - [ ] Large file support (>4GB files on ext4)
-- [ ] Performance optimization (read-ahead caching)
 - [ ] GUI settings panel
 
 <br>
