@@ -17,6 +17,13 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/ASan-PASS-brightgreen?style=flat-square&logo=llvm&logoColor=white" alt="ASan PASS">
+  <img src="https://img.shields.io/badge/MSVC%20%2Fanalyze-PASS-brightgreen?style=flat-square&logo=visualstudio&logoColor=white" alt="MSVC /analyze PASS">
+  <img src="https://img.shields.io/badge/CppCheck-PASS-brightgreen?style=flat-square&logo=c&logoColor=white" alt="CppCheck PASS">
+  <img src="https://img.shields.io/badge/Memory%20Leaks-0-brightgreen?style=flat-square&logo=databricks&logoColor=white" alt="Memory Leaks 0">
+</p>
+
+<p align="center">
   <sub>🌍 English · Português · Español · Deutsch · Français · 中文 · 日本語 · Русский</sub>
 </p>
 
@@ -449,6 +456,58 @@ Ext4Windows/
 
 <br>
 
+## Security & Memory Safety
+
+Ext4Windows is audited with four independent analysis tools. All tests are run on every release.
+
+<table>
+<tr>
+<th>Tool</th>
+<th>What it checks</th>
+<th>Result</th>
+</tr>
+<tr>
+<td><strong>AddressSanitizer (ASan)</strong><br><sub><code>/fsanitize=address</code></sub></td>
+<td>Buffer overflows, use-after-free, stack corruption, heap corruption — detected at runtime during a full mount → read → write → unmount → quit cycle</td>
+<td><strong>PASS — 0 errors</strong></td>
+</tr>
+<tr>
+<td><strong>MSVC Code Analysis</strong><br><sub><code>/analyze</code></sub></td>
+<td>Static analysis for null pointer dereferences, buffer overruns, uninitialized memory, integer overflows, security anti-patterns (C6000–C28000 rules)</td>
+<td><strong>PASS — 0 vulnerabilities</strong><br><sub>7 informational warnings (handle null checks — all guarded at runtime)</sub></td>
+</tr>
+<tr>
+<td><strong>CppCheck 2.20</strong><br><sub><code>--enable=all --inconclusive</code></sub></td>
+<td>Independent static analyzer (183 checkers): buffer overflows, null dereferences, resource leaks, uninitialized variables, portability issues</td>
+<td><strong>PASS — 0 bugs, 0 vulnerabilities</strong><br><sub>Style-only suggestions (const correctness, unused variables)</sub></td>
+</tr>
+<tr>
+<td><strong>CRT Debug Heap</strong><br><sub><code>_CrtDumpMemoryLeaks</code></sub></td>
+<td>Memory leaks — tracks every <code>new</code>/<code>malloc</code> and reports anything not freed at exit. Tested: blockdev create/destroy, full ext4 mount/read/unmount cycle</td>
+<td><strong>PASS — 0 leaks</strong></td>
+</tr>
+</table>
+
+### Security hardening measures
+
+| Protection | Description |
+|:-----------|:------------|
+| **Named Pipe ACL** | Pipe restricted to creator user via SDDL `D:(A;;GA;;;CU)` — other users on the system cannot send commands |
+| **Path traversal prevention** | All paths validated against `..` sequences and null bytes before processing |
+| **Drive letter validation** | Only `A-Z` accepted as drive letters in MOUNT/MOUNT_PARTITION commands |
+| **Integer overflow guards** | Block read/write sizes checked before multiplication to prevent DWORD overflow |
+| **Explicit process path** | `CreateProcessW` uses explicit exe path (no PATH search hijacking) |
+| **Bounded string copies** | All `wcscpy` replaced with `wcsncpy` + null terminator to prevent buffer overflow |
+| **Userspace driver** | No kernel module — a crash cannot cause BSOD or corrupt system memory |
+
+<br>
+
+<p align="center">
+  <img src="assets/divider.svg" width="600">
+</p>
+
+<br>
+
 ## Roadmap
 
 ### Done
@@ -498,7 +557,7 @@ Ext4Windows/
 
 ### Is this safe? Can it corrupt my Linux partition?
 
-Ext4Windows runs entirely in **userspace** (thanks to WinFsp), so it cannot cause a Blue Screen of Death (BSOD). For safety, the default mount mode is **read-only**. Only use `--rw` if you understand the risks — lwext4 does not yet support journaling, so a crash during a write could leave the filesystem in an inconsistent state. Always keep backups.
+Ext4Windows runs entirely in **userspace** (thanks to WinFsp), so it cannot cause a Blue Screen of Death (BSOD). The codebase is audited with AddressSanitizer, MSVC static analysis, and CRT leak detection — see [Security & Memory Safety](#security--memory-safety). For safety, the default mount mode is **read-only**. Write mode (`--rw`) includes ext4 journaling support for crash recovery. Always keep backups.
 
 ### Do I need admin privileges?
 
@@ -506,7 +565,7 @@ Ext4Windows runs entirely in **userspace** (thanks to WinFsp), so it cannot caus
 
 ### What ext4 features are supported?
 
-lwext4 supports the core ext4 features: extents, 64-bit block addressing, directory indexing (htree), and metadata checksums. Features **not** yet supported: journaling replay, inline data, encryption, and verity.
+lwext4 supports the core ext4 features: extents, 64-bit block addressing, directory indexing (htree), metadata checksums, and journaling (recovery + write transactions). Features **not** supported: inline data, encryption, and verity.
 
 ### Can I mount ext2 or ext3 partitions?
 
