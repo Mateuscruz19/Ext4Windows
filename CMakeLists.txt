@@ -55,3 +55,6 @@ if(EXISTS "${_winfsp_dll}")
         COMMENT "Copying winfsp-x64.dll to build directory"
     )
 endif()
+
+# Tests (Catch2)
+add_subdirectory(tests)

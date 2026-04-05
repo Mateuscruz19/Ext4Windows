@@ -21,6 +21,7 @@
   <img src="https://img.shields.io/badge/MSVC%20%2Fanalyze-PASS-brightgreen?style=flat-square&logo=visualstudio&logoColor=white" alt="MSVC /analyze PASS">
   <img src="https://img.shields.io/badge/CppCheck-PASS-brightgreen?style=flat-square&logo=c&logoColor=white" alt="CppCheck PASS">
   <img src="https://img.shields.io/badge/Memory%20Leaks-0-brightgreen?style=flat-square&logo=databricks&logoColor=white" alt="Memory Leaks 0">
+  <img src="https://img.shields.io/badge/Tests-110%20passed-brightgreen?style=flat-square&logo=checkmarx&logoColor=white" alt="Tests 110 passed">
 </p>
 
 <p align="center">
@@ -499,6 +500,39 @@ Ext4Windows is audited with four independent analysis tools. All tests are run o
 | **Explicit process path** | `CreateProcessW` uses explicit exe path (no PATH search hijacking) |
 | **Bounded string copies** | All `wcscpy` replaced with `wcsncpy` + null terminator to prevent buffer overflow |
 | **Userspace driver** | No kernel module — a crash cannot cause BSOD or corrupt system memory |
+
+<br>
+
+<p align="center">
+  <img src="assets/divider.svg" width="600">
+</p>
+
+<br>
+
+## Test Suite
+
+Ext4Windows uses [Catch2](https://github.com/catchorg/Catch2) for automated testing. The suite covers validation, security, string handling, timestamps, permissions, and ext4 integration.
+
+```
+test_validation   — 153 assertions in 21 tests   (drive letters, path traversal, overflow guards)
+test_string_utils —  34 assertions in 16 tests   (UTF-8 conversion, path mapping, roundtrips)
+test_timestamps   — 1018 assertions in 11 tests  (POSIX ↔ FILETIME, epoch, Y2K38, roundtrips)
+test_permissions  —  67 assertions in 23 tests   (mode bits, hidden files, READONLY, NORMAL)
+test_format_size  —  24 assertions in 24 tests   (bytes, MB, GB, TB, GUID comparison)
+test_blockdev     —  63 assertions in 15 tests   (create/destroy, mount/read/unmount, timestamps)
+─────────────────────────────────────────────────
+TOTAL               1359 assertions in 110 tests  ✅ ALL PASSED
+```
+
+### Running the tests
+
+```bash
+cd build
+cmake ..
+cmake --build .
+cd tests
+ctest --output-on-failure
+```
 
 <br>
 
