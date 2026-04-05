@@ -26,6 +26,7 @@ add_executable(ext4windows
     src/server.cpp
     src/client.cpp
     src/tray_icon.cpp
+    src/ext4windows.rc
 )
 
 target_include_directories(ext4windows PRIVATE src)

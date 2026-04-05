@@ -40,9 +40,16 @@ TrayIcon::TrayIcon(MountManager& manager)
         return;
     }
 
-    // Load default application icon (placeholder — can be replaced
-    // with a custom .ico embedded via resource file later)
-    icon_ = LoadIconW(nullptr, IDI_APPLICATION);
+    // Load our custom icon from the embedded resource (ext4windows.rc).
+    // IDI_APPICON (1) is defined in the .rc file.
+    // LoadIconW with GetModuleHandleW(nullptr) loads from OUR exe,
+    // not from the system icons.
+    icon_ = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
+    if (!icon_) {
+        // Fallback to generic icon if resource not found (e.g. during dev)
+        dbg("TrayIcon: custom icon not found, using default");
+        icon_ = LoadIconW(nullptr, IDI_APPLICATION);
+    }
 
     CreateTrayIcon();
     dbg("TrayIcon: created");
