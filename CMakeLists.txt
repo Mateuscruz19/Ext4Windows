@@ -26,6 +26,7 @@ add_executable(ext4windows
     src/server.cpp
     src/client.cpp
     src/tray_icon.cpp
+    src/interactive.cpp
     src/ext4windows.rc
 )
 

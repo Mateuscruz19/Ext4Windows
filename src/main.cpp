@@ -9,6 +9,7 @@
 #include "debug_log.hpp"
 #include "server.hpp"
 #include "client.hpp"
+#include "interactive.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -948,67 +949,7 @@ int wmain(int argc, wchar_t* argv[])
         return run(image_path, mount_buf, false, cli_read_only);
     }
 
-    // Interactive mode: no arguments
-    print_welcome();
-
-    g_lang = ask_language();
-    printf("\n");
-
-    print_help_text();
-
-    // Ask: use image file or scan for partitions?
-    printf("  %s\n", tr(
-        "CHOOSE SOURCE",
-        "ESCOLHA A ORIGEM"));
-    printf("  %s\n", tr(
-        "  [1] Open an ext4 image file (.img)",
-        "  [1] Abrir um arquivo de imagem ext4 (.img)"));
-    printf("  %s\n", tr(
-        "  [2] Scan for ext4 partitions (requires Admin)",
-        "  [2] Buscar particoes ext4 (requer Administrador)"));
-    printf("\n");
-    printf("  > ");
-    fflush(stdout);
-
-    wchar_t source_choice[64] = {};
-    if (!read_line(source_choice, 64)) {
-        pause_before_exit();
-        return 1;
-    }
-
-    if (source_choice[0] == L'2') {
-        // Scan mode
-        wchar_t mount_point[8] = {};
-        if (!ask_drive_letter(mount_point, 8)) {
-            pause_before_exit();
-            return 1;
-        }
-
-        bool read_only = ask_read_write();
-
-        int result = do_scan(mount_point, true, read_only);
-        if (result == -1) {
-            // User cancelled — let them try again or exit
-            pause_before_exit();
-            return 0;
-        }
-        return result;
-    }
-
-    // Default: image file mode
-    wchar_t image_path[512] = {};
-    if (!ask_image_path(image_path, 512)) {
-        pause_before_exit();
-        return 1;
-    }
-
-    wchar_t mount_point[8] = {};
-    if (!ask_drive_letter(mount_point, 8)) {
-        pause_before_exit();
-        return 1;
-    }
-
-    bool read_only = ask_read_write();
-
-    return run(image_path, mount_point, true, read_only);
+    // Interactive mode: no arguments — launch the interactive shell.
+    // This is the main user experience when someone double-clicks the exe.
+    return interactive_main();
 }
