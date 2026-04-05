@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo_with_text.png" alt="Ext4Windows" width="350">
+  <img src="../assets/logo_with_text.png" alt="Ext4Windows" width="350">
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <sub>🌍 <a href="README.md">English</a> · <a href="README.pt-BR.md">Português</a> · <a href="README.es.md">Español</a> · <a href="README.de.md">Deutsch</a> · <strong>Français</strong> · <a href="README.zh.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a></sub>
+  <sub>🌍 <a href="../README.md">English</a> · <a href="README.pt-BR.md">Português</a> · <a href="README.es.md">Español</a> · <a href="README.de.md">Deutsch</a> · <strong>Français</strong> · <a href="README.zh.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a></sub>
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -73,7 +73,7 @@ Vos fichiers ext4 sont maintenant sur **Z:** — parcourez-les dans l'Explorateu
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -130,7 +130,7 @@ Vos fichiers ext4 sont maintenant sur **Z:** — parcourez-les dans l'Explorateu
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -156,7 +156,7 @@ Comment Ext4Windows se compare-t-il aux alternatives ?
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -210,7 +210,7 @@ ext4windows path\to\image.img Z: --rw
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -298,7 +298,7 @@ Le serveur crée une **icône dans la zone de notification** (system tray) en ut
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -328,7 +328,7 @@ ext4windows mount test.img
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -410,7 +410,7 @@ Ext4Windows/
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -451,7 +451,7 @@ Ext4Windows/
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -503,7 +503,7 @@ Ext4Windows est audité avec quatre outils d'analyse indépendants. Tous les tes
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -547,7 +547,7 @@ Ext4Windows est audité avec quatre outils d'analyse indépendants. Tous les tes
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -644,7 +644,7 @@ Si vous éjectez le lecteur depuis l'Explorateur (clic droit → Éjecter), le s
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -670,7 +670,7 @@ Ce projet est sous licence **GNU General Public License v2.0** — voir le fichi
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <p align="center">

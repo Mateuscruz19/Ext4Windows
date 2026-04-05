@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <sub>🌍 **English** · <a href="README.pt-BR.md">Português</a> · <a href="README.es.md">Español</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.zh.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a></sub>
+  <sub>🌍 **English** · <a href="docs/README.pt-BR.md">Português</a> · <a href="docs/README.es.md">Español</a> · <a href="docs/README.de.md">Deutsch</a> · <a href="docs/README.fr.md">Français</a> · <a href="docs/README.zh.md">中文</a> · <a href="docs/README.ja.md">日本語</a> · <a href="docs/README.ru.md">Русский</a></sub>
 </p>
 
 <p align="center">
@@ -70,6 +70,16 @@ C:\> ext4windows mount D:\linux.img
 ```
 
 Your ext4 files are now on **Z:** — browse them in Explorer, open them in any app, drag & drop. Done.
+
+<br>
+
+<p align="center">
+  <img src="assets/screenshot_menu.png" alt="Ext4Windows interactive menu" width="700">
+</p>
+
+<p align="center">
+  <img src="assets/screenshot_help.png" alt="Ext4Windows help screen" width="700">
+</p>
 
 <br>
 

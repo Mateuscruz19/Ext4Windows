@@ -1,0 +1,34 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install WinFsp
+        run: choco install winfsp -y
+
+      - name: Configure
+        run: cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -B build -S .
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Run unit tests
+        working-directory: build/tests
+        run: ctest --output-on-failure --exclude-regex "test_blockdev"

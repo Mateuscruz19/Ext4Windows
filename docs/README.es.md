@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo_with_text.png" alt="Ext4Windows" width="350">
+  <img src="../assets/logo_with_text.png" alt="Ext4Windows" width="350">
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <sub>🌍 <a href="README.md">English</a> · <a href="README.pt-BR.md">Português</a> · <strong>Español</strong> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.zh.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a></sub>
+  <sub>🌍 <a href="../README.md">English</a> · <a href="README.pt-BR.md">Português</a> · <strong>Español</strong> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.zh.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a></sub>
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -73,7 +73,7 @@ Tus archivos ext4 ahora están en **Z:** — navégalos en el Explorador, ábrel
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -130,7 +130,7 @@ Tus archivos ext4 ahora están en **Z:** — navégalos en el Explorador, ábrel
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -156,7 +156,7 @@ Tus archivos ext4 ahora están en **Z:** — navégalos en el Explorador, ábrel
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -210,7 +210,7 @@ ext4windows path\to\image.img Z: --rw
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -298,7 +298,7 @@ El servidor crea un **icono en la bandeja del sistema** (área de notificaciones
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -328,7 +328,7 @@ ext4windows mount test.img
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -410,7 +410,7 @@ Ext4Windows/
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -451,7 +451,7 @@ Ext4Windows/
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -503,7 +503,7 @@ Ext4Windows es auditado con cuatro herramientas de análisis independientes. Tod
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -547,7 +547,7 @@ Ext4Windows es auditado con cuatro herramientas de análisis independientes. Tod
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -644,7 +644,7 @@ Si expulsas la unidad desde el Explorador (clic derecho → Expulsar), el servid
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <br>
@@ -670,7 +670,7 @@ Este proyecto está licenciado bajo la **Licencia Pública General de GNU v2.0**
 <br>
 
 <p align="center">
-  <img src="assets/divider.svg" width="600">
+  <img src="../assets/divider.svg" width="600">
 </p>
 
 <p align="center">
