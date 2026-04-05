@@ -26,13 +26,16 @@ static BOOL WINAPI console_ctrl_handler(DWORD type)
 static void print_banner()
 {
     printf("\n");
-    printf("\n");
-    printf("   ______        _    _  _  __          __  _               _\n");
-    printf("  |  ____|      | |  | || | \\ \\        / / (_)             | |\n");
-    printf("  | |__   __  __| |_ | || |_ \\ \\  /\\  / /   _  _ __     __| |  ___  __      __  ___\n");
-    printf("  |  __|  \\ \\/ /| __||__   _| \\ \\/  \\/ /   | || '_ \\   / _` | / _ \\ \\ \\ /\\ / / / __|\n");
-    printf("  | |____  >  < | |_    | |    \\  /\\  /    | || | | | | (_| || (_) | \\ V  V /  \\__ \\\n");
-    printf("  |______|/_/\\_\\ \\__|   |_|     \\/  \\/     |_||_| |_|  \\__,_| \\___/   \\_/\\_/  |___/\n");
+    printf("                                                            ,,                    ,,\n");
+    printf("  `7MM\"\"\"YMM               mm         `7MMF'     A     `7MF'db                  `7MM\n");
+    printf("    MM    `7               MM           `MA     ,MA     ,V                        MM\n");
+    printf("    MM   d    `7M'   `MF'mmMMmm      ,AM VM:   ,VVM:   ,V `7MM  `7MMpMMMb.   ,M\"\"bMM  ,pW\"Wq.`7M'    ,A    `MF',pP\"Ybd\n");
+    printf("    MMmmMM      `VA ,V'    MM       AVMM  MM.  M' MM.  M'   MM    MM    MM ,AP    MM 6W'   `Wb VA   ,VAA   ,V  8I   `\"\n");
+    printf("    MM   Y  ,     XMX      MM     ,W' MM  `MM A'  `MM A'    MM    MM    MM 8MI    MM 8M     M8  VA ,V  VA ,V   `YMMMa.\n");
+    printf("    MM     ,M   ,V' VA.    MM   ,W'   MM   :MM;    :MM;     MM    MM    MM `Mb    MM YA.   ,A9   VVV    VVV    L.   I8\n");
+    printf("  .JMMmmmmMMM .AM.   .MA.  `MbmoAmmmmmMMmm  VF      VF    .JMML..JMML  JMML.`Wbmd\"MML.`Ybmd9'     W      W     M9mmmP'\n");
+    printf("                                      MM\n");
+    printf("                                      MM\n");
     printf("\n");
     printf("  Mount ext4 Linux drives on Windows\n");
     printf("  github.com/Mateuscruz19/Ext4Windows\n");
