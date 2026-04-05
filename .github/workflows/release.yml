@@ -36,9 +36,15 @@ jobs:
           copy build\ext4windows.exe release\
           copy build\winfsp-x64.dll release\
 
-      - name: Create zip
+      - name: Create portable zip
         run: Compress-Archive -Path release\* -DestinationPath Ext4Windows-${{ github.ref_name }}-portable.zip
         shell: pwsh
+
+      - name: Build installer
+        run: |
+          choco install innosetup -y
+          iscc installer\ext4windows.iss
+        shell: cmd
 
       - name: Upload release
         uses: softprops/action-gh-release@v2
@@ -46,4 +52,4 @@ jobs:
           files: |
             Ext4Windows-${{ github.ref_name }}-portable.zip
             release/ext4windows.exe
-          generate_release_notes: true
+            installer/Output/*.exe
