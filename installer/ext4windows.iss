@@ -96,14 +96,15 @@ Type: files; Name: "{app}\*.log"
 [Code]
 // WinFsp MSI download URL (latest stable release)
 const
-  WinFspMsiUrl = 'https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25039.msi';
+  WinFspMsiUrl = 'https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi';
 
 // Check if WinFsp is installed (required dependency)
 function IsWinFspInstalled: Boolean;
 var
   InstallDir: String;
 begin
-  Result := RegQueryStringValue(HKLM, 'SOFTWARE\WinFsp', 'InstallDir', InstallDir);
+  Result := RegQueryStringValue(HKLM, 'SOFTWARE\WinFsp', 'InstallDir', InstallDir)
+         or RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\WinFsp', 'InstallDir', InstallDir);
 end;
 
 // Check if path already contains our directory
@@ -175,8 +176,6 @@ begin
 
   // Download WinFsp MSI to temp folder
   TmpMsi := ExpandConstant('{tmp}\winfsp-setup.msi');
-  WizardForm.StatusLabel.Caption := 'Downloading WinFsp...';
-  WizardForm.StatusLabel.Update;
 
   if not DownloadFile(WinFspMsiUrl, TmpMsi) then begin
     MsgBox(
@@ -189,9 +188,6 @@ begin
   end;
 
   // Install WinFsp silently
-  WizardForm.StatusLabel.Caption := 'Installing WinFsp...';
-  WizardForm.StatusLabel.Update;
-
   if not InstallWinFsp(TmpMsi) then begin
     MsgBox(
       'WinFsp installation failed.' + #13#10 + #13#10 +

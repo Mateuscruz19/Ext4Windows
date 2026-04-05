@@ -1513,13 +1513,47 @@ int interactive_main()
     }
 
     ensure_server();
+    bool server_was_running = true;
 
     while (true) {
+
         print_main_menu();
         print_prompt();
 
+        // Wait for user input with periodic server health checks.
+        // Instead of blocking forever on read_line, we poll stdin every
+        // 2 seconds and check if the server is still alive in between.
+        // If the server dies (e.g. tray Quit), we exit immediately.
         char input[256] = {};
-        if (!read_line(input, sizeof(input))) break;
+        {
+            HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+            bool got_input = false;
+            while (!got_input) {
+                DWORD result = WaitForSingleObject(hStdin, 2000);
+                if (result == WAIT_OBJECT_0) {
+                    // Input is available — read it
+                    if (!read_line(input, sizeof(input))) return 0;
+                    got_input = true;
+                } else {
+                    // Timeout — check if server is still alive
+                    if (!is_server_running()) {
+                        set_color(CLR_GRAY);
+                        printf("\r  %s\n", tr(
+                            "Server stopped. Closing...",
+                            "Servidor parado. Fechando...",
+                            "Servidor detenido. Cerrando...",
+                            "Server gestoppt. Schliesse...",
+                            "Serveur arrete. Fermeture...",
+                            "\xe6\x9c\x8d\xe5\x8a\xa1\xe5\x99\xa8\xe5\xb7\xb2\xe5\x81\x9c\xe6\xad\xa2\xe3\x80\x82\xe5\x85\xb3\xe9\x97\xad\xe4\xb8\xad...",
+                            "\xe3\x82\xb5\xe3\x83\xbc\xe3\x83\x90\xe3\x83\xbc\xe5\x81\x9c\xe6\xad\xa2\xe3\x80\x82\xe9\x96\x89\xe3\x81\x98\xe3\x81\xbe\xe3\x81\x99...",
+                            "\xd0\xa1\xd0\xb5\xd1\x80\xd0\xb2\xd0\xb5\xd1\x80 \xd0\xbe\xd1\x81\xd1\x82\xd0\xb0\xd0\xbd\xd0\xbe\xd0\xb2\xd0\xbb\xd0\xb5\xd0\xbd. \xd0\x97\xd0\xb0\xd0\xba\xd1\x80\xd1\x8b\xd1\x82\xd0\xb8\xd0\xb5..."));
+                        reset_color();
+                        Sleep(1500);
+                        return 0;
+                    }
+                }
+            }
+        }
 
         switch (input[0]) {
             case '1': do_mount_image(); break;
