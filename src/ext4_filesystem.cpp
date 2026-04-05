@@ -4,7 +4,9 @@
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <string>
 #include <vector>
+#include <sddl.h>
 
 // Global mutex shared by ALL Ext4FileSystem instances.
 // lwext4 uses global internal state (mount table, device registry),
@@ -247,6 +249,7 @@ NTSTATUS Ext4FileSystem::FillFileInfo(const char* path,
     ext4_file f;
     std::memset(&f, 0, sizeof(f));
 
+    bool is_directory = false;
     int rc = ext4_fopen(&f, path, "rb");
     if (rc == EOK) {
         // It's a file
@@ -268,6 +271,41 @@ NTSTATUS Ext4FileSystem::FillFileInfo(const char* path,
         FileInfo->FileSize = 0;
         FileInfo->AllocationSize = 0;
         ext4_dir_close(&d);
+        is_directory = true;
+    }
+
+    // ── Linux permission mapping ──────────────────────────────
+    // Read the ext4 inode mode bits (standard POSIX format):
+    //   Bits 0-2: others (rwx)
+    //   Bits 3-5: group  (rwx)
+    //   Bits 6-8: owner  (rwx)
+    //   Bits 12-15: file type (regular, directory, symlink, etc.)
+    //
+    // In Python terms: os.stat(file).st_mode & 0o777 gives the
+    // permission bits. 0o755 = rwxr-xr-x, 0o644 = rw-r--r--.
+    //
+    // We map these to Windows file attributes:
+    //   - If owner has no write permission → FILE_ATTRIBUTE_READONLY
+    //   - Hidden files (name starts with '.') → FILE_ATTRIBUTE_HIDDEN
+    //
+    // Docs: https://en.cppreference.com/w/cpp/filesystem/perms
+    //       https://learn.microsoft.com/en-us/windows/win32/fileio/file-attribute-constants
+    uint32_t mode = 0;
+    if (ext4_mode_get(path, &mode) == EOK) {
+        // Check owner write permission: bit 7 (0200 in octal)
+        // This is like checking: (st_mode & stat.S_IWUSR) in Python
+        bool owner_can_write = (mode & 0200) != 0;
+        if (!owner_can_write && !is_directory) {
+            FileInfo->FileAttributes |= FILE_ATTRIBUTE_READONLY;
+        }
+    }
+
+    // Hidden files: in Linux, files starting with '.' are hidden.
+    // Map this to FILE_ATTRIBUTE_HIDDEN on Windows so they don't
+    // clutter the Explorer view (just like Linux file managers hide them).
+    const char* basename = strrchr(path, '/');
+    if (basename && basename[1] == '.') {
+        FileInfo->FileAttributes |= FILE_ATTRIBUTE_HIDDEN;
     }
 
     // Read timestamps from ext4 (POSIX seconds → Windows FILETIME)
@@ -319,16 +357,72 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetSecurityByName(FSP_FILE_SYSTEM* FileSystem,
     if (PFileAttributes)
         *PFileAttributes = file_info.FileAttributes;
 
-    // Build a security descriptor that grants everyone full access.
-    // We use SDDL: D:P(A;;GA;;;WD) meaning "Allow Generic All to World (Everyone)"
+    // ── Security descriptor from ext4 permissions ──────────────
+    // Build a Windows security descriptor based on the ext4 inode
+    // mode bits. This tells Windows who can read/write/execute.
+    //
+    // SDDL (Security Descriptor Definition Language) is a string
+    // format for security descriptors. Think of it like a mini-language
+    // for expressing "who can do what" — similar to chmod in Linux.
+    //
+    // Format: "O:owner G:group D:(ACE)(ACE)..."
+    //   O:BA = Owner is BUILTIN\Administrators
+    //   G:BA = Group is BUILTIN\Administrators
+    //   D:   = DACL (Discretionary Access Control List)
+    //   A    = Allow
+    //   GA   = Generic All (full access)
+    //   GR   = Generic Read
+    //   GX   = Generic Execute
+    //   GW   = Generic Write
+    //   WD   = World (Everyone)
+    //   BA   = BUILTIN\Administrators
+    //
+    // We map ext4 permissions like this:
+    //   Owner rwx → Administrators get corresponding access
+    //   Others rwx → Everyone gets corresponding access
+    //
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/secauthz/
+    //       security-descriptor-definition-language
     if (PSecurityDescriptorSize) {
-        // Create the SD from SDDL string
+        // Read ext4 mode bits for this file
+        uint32_t mode = 0;
+        ext4_mode_get(path.c_str(), &mode);
+
+        // Build SDDL based on ext4 permissions
+        // Start with owner and group as Administrators
+        std::wstring sddl = L"O:BAG:BAD:";
+
+        // Owner permissions (bits 6-8) → map to BA (Administrators)
+        {
+            std::wstring owner_rights;
+            if (mode & 0400) owner_rights += L"GR";  // owner read
+            if (mode & 0200) owner_rights += L"GW";  // owner write
+            if (mode & 0100) owner_rights += L"GX";  // owner execute
+            if (owner_rights.empty()) owner_rights = L"GR"; // at least read
+            sddl += L"(A;;" + owner_rights + L";;;BA)";
+        }
+
+        // Others permissions (bits 0-2) → map to WD (Everyone)
+        {
+            std::wstring other_rights;
+            if (mode & 0004) other_rights += L"GR";  // others read
+            if (mode & 0002) other_rights += L"GW";  // others write
+            if (mode & 0001) other_rights += L"GX";  // others execute
+            if (other_rights.empty()) other_rights = L"GR"; // at least read
+            sddl += L"(A;;" + other_rights + L";;;WD)";
+        }
+
         PSECURITY_DESCRIPTOR sd = nullptr;
         ULONG sd_size = 0;
 
         if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                L"O:BAG:BAD:(A;;0x1f01ff;;;WD)", SDDL_REVISION_1, &sd, &sd_size))
-            return STATUS_UNSUCCESSFUL;
+                sddl.c_str(), SDDL_REVISION_1, &sd, &sd_size))
+        {
+            // Fallback: if SDDL parsing fails, use simple full-access
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                L"O:BAG:BAD:(A;;0x1f01ff;;;WD)", SDDL_REVISION_1,
+                &sd, &sd_size);
+        }
 
         if (*PSecurityDescriptorSize < sd_size) {
             *PSecurityDescriptorSize = sd_size;
