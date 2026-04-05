@@ -26,15 +26,14 @@ static BOOL WINAPI console_ctrl_handler(DWORD type)
 static void print_banner()
 {
     printf("\n");
-    printf("  ______      _   _  _  __        ___           _                    \n");
-    printf("  |  ____|    | | | || | \\ \\      / (_)         | |                   \n");
-    printf("  | |__  __  _| |_| || |_ \\ \\  / / _ _ __   __| | _____      _____  \n");
-    printf("  |  __| \\ \\/ / __|__   _| \\ \\/ / | | '_ \\ / _` |/ _ \\ \\ /\\ / / __| \n");
-    printf("  | |____ >  <| |_   | |    \\  /  | | | | | (_| | (_) \\ V  V /\\__ \\ \n");
-    printf("  |______/_/\\_\\\\__|  |_|     \\/   |_|_| |_|\\__,_|\\___/ \\_/\\_/ |___/ \n");
-    printf("\n");
-    printf("  Mount ext4 Linux partitions and images on Windows.\n");
-    printf("  github.com/Mateuscruz19/Ext4Windows\n");
+    printf("  +----------------------------------------------------+\n");
+    printf("  |                                                    |\n");
+    printf("  |   Ext4Windows                                      |\n");
+    printf("  |   Mount ext4 Linux drives on Windows               |\n");
+    printf("  |                                                    |\n");
+    printf("  |   github.com/Mateuscruz19/Ext4Windows              |\n");
+    printf("  |                                                    |\n");
+    printf("  +----------------------------------------------------+\n");
     printf("\n");
 }
 
