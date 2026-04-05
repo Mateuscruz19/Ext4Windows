@@ -7,6 +7,8 @@
 #include "blockdev_partition.hpp"
 #include "partition_scanner.hpp"
 #include "debug_log.hpp"
+#include "server.hpp"
+#include "client.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -65,19 +67,25 @@ static void print_usage()
 {
     print_banner();
     printf("  USAGE:\n");
-    printf("    ext4windows <image-file> [drive-letter] [--rw] [--debug]\n");
-    printf("    ext4windows --scan                       Detect ext4 partitions\n");
+    printf("    ext4windows mount <path> [drive:] [--rw]   Mount via background server\n");
+    printf("    ext4windows unmount <drive:>                Unmount a drive\n");
+    printf("    ext4windows status                         Show active mounts\n");
+    printf("    ext4windows quit                           Stop server and unmount all\n");
+    printf("\n");
+    printf("  LEGACY (blocking, no server):\n");
+    printf("    ext4windows <image-file> [drive:] [--rw]   Mount and block terminal\n");
+    printf("    ext4windows --scan [drive:]                Detect ext4 partitions\n");
     printf("\n");
     printf("  EXAMPLES:\n");
-    printf("    ext4windows C:\\linux.img Z:              Mount .img read-only on Z:\n");
-    printf("    ext4windows C:\\linux.img Z: --rw         Mount .img read-write on Z:\n");
-    printf("    ext4windows --scan                       List ext4 partitions (as Admin)\n");
-    printf("    ext4windows \"\\\\?\\GLOBALROOT\\...\" Z:     Mount partition on Z:\n");
+    printf("    ext4windows mount C:\\linux.img Z: --rw    Mount image (background)\n");
+    printf("    ext4windows status                        Show what's mounted\n");
+    printf("    ext4windows unmount Z:                    Unmount Z:\n");
+    printf("    ext4windows C:\\linux.img Z:               Legacy blocking mode\n");
     printf("\n");
     printf("  OPTIONS:\n");
     printf("    --rw      Mount with read-write access (default: read-only)\n");
     printf("    --debug   Print detailed debug log to stderr\n");
-    printf("    --scan    List ext4 partitions (run as Admin, mount without)\n");
+    printf("    --scan    List ext4 partitions (legacy mode)\n");
     printf("\n");
     printf("  Run without arguments for interactive mode.\n");
     printf("\n");
@@ -325,7 +333,11 @@ static int mount_and_wait(struct ext4_blockdev* bdev,
 {
     // Mount the ext4 filesystem via WinFsp
     Ext4FileSystem fs;
-    NTSTATUS status = fs.Mount(bdev, mount_point, read_only);
+    // Extract drive letter as instance ID for lwext4 unique naming.
+    // mount_point is like "Z:" — take the first character.
+    char instance_id = (mount_point && mount_point[0]) ?
+        static_cast<char>(mount_point[0]) : 'A';
+    NTSTATUS status = fs.Mount(bdev, mount_point, read_only, instance_id);
     if (!NT_SUCCESS(status)) {
         printf("\n\n");
         if (status == 0xC0000035) {
@@ -827,6 +839,29 @@ int wmain(int argc, wchar_t* argv[])
             wcscmp(argv[1], L"/?") == 0) {
             print_usage();
             return 0;
+        }
+
+        // Server mode: run as background daemon
+        if (wcscmp(argv[1], L"--server") == 0) {
+            // Parse --debug before starting server
+            for (int i = 2; i < argc; i++) {
+                if (wcscmp(argv[i], L"--debug") == 0)
+                    g_debug = true;
+            }
+            return run_server();
+        }
+
+        // Client subcommands: mount, unmount, status, quit
+        if (wcscmp(argv[1], L"mount") == 0 ||
+            wcscmp(argv[1], L"unmount") == 0 ||
+            wcscmp(argv[1], L"status") == 0 ||
+            wcscmp(argv[1], L"quit") == 0) {
+            // Parse --debug before sending command
+            for (int i = 2; i < argc; i++) {
+                if (wcscmp(argv[i], L"--debug") == 0)
+                    g_debug = true;
+            }
+            return client_main(argc, argv);
         }
 
         // Internal command: --scan-save <file> (elevated subprocess)

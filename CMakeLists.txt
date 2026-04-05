@@ -23,6 +23,9 @@ add_executable(ext4windows
     src/blockdev_file.cpp
     src/blockdev_partition.cpp
     src/partition_scanner.cpp
+    src/server.cpp
+    src/client.cpp
+    src/tray_icon.cpp
 )
 
 target_include_directories(ext4windows PRIVATE src)
