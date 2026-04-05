@@ -26,24 +26,43 @@ static BOOL WINAPI console_ctrl_handler(DWORD type)
 static void print_banner()
 {
     printf("\n");
-    printf("  ====================================\n");
-    printf("  Ext4Windows  —  ext4 driver for Windows\n");
-    printf("  ====================================\n");
+    printf("  ______      _   _  _  __        ___           _                    \n");
+    printf("  |  ____|    | | | || | \\ \\      / (_)         | |                   \n");
+    printf("  | |__  __  _| |_| || |_ \\ \\  / / _ _ __   __| | _____      _____  \n");
+    printf("  |  __| \\ \\/ / __|__   _| \\ \\/ / | | '_ \\ / _` |/ _ \\ \\ /\\ / / __| \n");
+    printf("  | |____ >  <| |_   | |    \\  /  | | | | | (_| | (_) \\ V  V /\\__ \\ \n");
+    printf("  |______/_/\\_\\\\__|  |_|     \\/   |_|_| |_|\\__,_|\\___/ \\_/\\_/ |___/ \n");
+    printf("\n");
+    printf("  Mount ext4 Linux partitions and images on Windows.\n");
+    printf("  github.com/Mateuscruz19/Ext4Windows\n");
+    printf("\n");
+}
+
+static void print_welcome()
+{
+    print_banner();
+    printf("  HOW TO USE:\n");
+    printf("  1. Choose an ext4 image file (.img)\n");
+    printf("  2. Pick a drive letter (or let us pick one)\n");
+    printf("  3. Access your Linux files in File Explorer!\n");
+    printf("\n");
+    printf("  TIP: You can drag and drop a file into this window.\n");
+    printf("\n");
+    printf("  --------------------------------------------------------\n");
     printf("\n");
 }
 
 static void print_usage()
 {
-    printf("Usage: ext4windows <image-file> [drive-letter]\n");
+    print_banner();
+    printf("  USAGE:\n");
+    printf("    ext4windows <image-file> [drive-letter]\n");
     printf("\n");
-    printf("  image-file    Path to an ext4 .img file\n");
-    printf("  drive-letter  Letter to mount (e.g. Z:) — optional\n");
+    printf("  EXAMPLES:\n");
+    printf("    ext4windows C:\\linux.img Z:     Mount on Z:\n");
+    printf("    ext4windows C:\\linux.img        Auto-pick drive letter\n");
     printf("\n");
-    printf("Examples:\n");
-    printf("  ext4windows C:\\linux.img Z:\n");
-    printf("  ext4windows C:\\linux.img\n");
-    printf("\n");
-    printf("If no arguments are given, interactive mode starts.\n");
+    printf("  Run without arguments for interactive mode.\n");
     printf("\n");
 }
 
@@ -92,13 +111,100 @@ static void strip_quotes(wchar_t* path)
     }
 }
 
+// --- Internationalization (i18n) ---
+// 0 = English, 1 = Portuguese
+static int g_lang = 0;
+
+static const char* tr(const char* en, const char* pt)
+{
+    return g_lang == 1 ? pt : en;
+}
+
+static const wchar_t* tr(const wchar_t* en, const wchar_t* pt)
+{
+    return g_lang == 1 ? pt : en;
+}
+
+static int ask_language()
+{
+    printf("  Select language / Selecione o idioma:\n");
+    printf("\n");
+    printf("    [1] English\n");
+    printf("    [2] Portugues\n");
+    printf("\n");
+    printf("  > ");
+    fflush(stdout);
+
+    wchar_t input[64] = {};
+    if (!read_line(input, 64))
+        return 0;
+
+    if (input[0] == L'2')
+        return 1;
+    return 0;
+}
+
+static void print_help_text()
+{
+    printf("\n");
+    printf("  --------------------------------------------------------\n");
+    printf("\n");
+    printf("  %s\n", tr(
+        "WHAT IS THIS?",
+        "O QUE E ISSO?"));
+    printf("\n");
+    printf("  %s\n", tr(
+        "  Ext4Windows lets you read Linux disks and partitions",
+        "  Ext4Windows permite ler discos e particoes Linux"));
+    printf("  %s\n", tr(
+        "  directly on Windows — no Linux installation needed.",
+        "  direto no Windows — sem precisar instalar Linux."));
+    printf("\n");
+    printf("  %s\n", tr(
+        "  ext4 is the default filesystem of Linux (like NTFS is",
+        "  ext4 e o sistema de arquivos padrao do Linux (assim como"));
+    printf("  %s\n", tr(
+        "  for Windows). Windows can't read ext4 natively, but",
+        "  NTFS e para Windows). Windows nao le ext4 nativamente,"));
+    printf("  %s\n", tr(
+        "  this tool makes it possible.",
+        "  mas essa ferramenta torna isso possivel."));
+    printf("\n");
+    printf("  %s\n", tr(
+        "  HOW IT WORKS:",
+        "  COMO FUNCIONA:"));
+    printf("  %s\n", tr(
+        "  1. You provide an ext4 image file (.img)",
+        "  1. Voce fornece um arquivo de imagem ext4 (.img)"));
+    printf("  %s\n", tr(
+        "  2. We mount it as a Windows drive (e.g. Z:)",
+        "  2. Nos montamos como um drive Windows (ex: Z:)"));
+    printf("  %s\n", tr(
+        "  3. Browse your Linux files in File Explorer!",
+        "  3. Navegue seus arquivos Linux no Explorador!"));
+    printf("\n");
+    printf("  %s\n", tr(
+        "  Currently read-only. Your files are safe.",
+        "  Atualmente somente leitura. Seus arquivos estao seguros."));
+    printf("\n");
+    printf("  --------------------------------------------------------\n");
+    printf("\n");
+}
+
 // Ask the user for the image path interactively.
 static bool ask_image_path(wchar_t* out, int max_chars)
 {
-    printf("Enter the path to an ext4 image file:\n");
-    printf("  (you can drag and drop the file here)\n");
+    printf("  %s\n", tr(
+        "IMAGE FILE",
+        "ARQUIVO DE IMAGEM"));
+    printf("  %s\n", tr(
+        "Enter the path to your ext4 image (.img):",
+        "Digite o caminho do seu arquivo ext4 (.img):"));
+    printf("  %s\n", tr(
+        "(TIP: you can drag and drop the file here)",
+        "(DICA: voce pode arrastar e soltar o arquivo aqui)"));
     printf("\n");
-    printf("  Path: ");
+    printf("  > ");
     fflush(stdout);
 
     if (!read_line(out, max_chars))
@@ -114,14 +220,22 @@ static bool ask_drive_letter(wchar_t* out, int max_chars)
     wchar_t free_letter = find_free_drive_letter();
 
     printf("\n");
+    printf("  %s\n", tr(
+        "DRIVE LETTER",
+        "LETRA DO DRIVE"));
+
     if (free_letter) {
-        printf("Enter drive letter to mount, or press Enter for auto (%c:):\n",
-               (char)free_letter);
+        printf("  %s (%c:):\n", tr(
+            "Choose a letter or press Enter for auto",
+            "Escolha uma letra ou pressione Enter para auto"),
+            (char)free_letter);
     } else {
-        printf("Enter drive letter to mount:\n");
+        printf("  %s:\n", tr(
+            "Choose a drive letter (A-Z)",
+            "Escolha uma letra de drive (A-Z)"));
     }
     printf("\n");
-    printf("  Drive: ");
+    printf("  > ");
     fflush(stdout);
 
     wchar_t input[64] = {};
@@ -129,19 +243,21 @@ static bool ask_drive_letter(wchar_t* out, int max_chars)
         return false;
 
     if (input[0] == L'\0' && free_letter) {
-        // User pressed Enter — use auto
         swprintf(out, max_chars, L"%c:", free_letter);
     } else if (input[0] != L'\0') {
-        // User typed something — normalize to "X:" format
         wchar_t letter = towupper(input[0]);
         if (letter < L'A' || letter > L'Z') {
-            printf("\n  Error: '%c' is not a valid drive letter (A-Z).\n",
-                   (char)input[0]);
+            printf("\n  %s '%c'.\n", tr(
+                "Error: invalid drive letter:",
+                "Erro: letra de drive invalida:"),
+                (char)input[0]);
             return false;
         }
         swprintf(out, max_chars, L"%c:", letter);
     } else {
-        printf("\n  Error: no free drive letters available.\n");
+        printf("\n  %s\n", tr(
+            "Error: no free drive letters available.",
+            "Erro: nenhuma letra de drive disponivel."));
         return false;
     }
 
@@ -151,7 +267,7 @@ static bool ask_drive_letter(wchar_t* out, int max_chars)
 // Wait for user to press Enter (keeps the window open after errors).
 static void pause_before_exit()
 {
-    printf("\nPress Enter to exit...");
+    printf("\n%s", tr("Press Enter to exit...", "Pressione Enter para sair..."));
     fflush(stdout);
     getwchar();
 }
@@ -168,21 +284,33 @@ static int run(const wchar_t* image_path, const wchar_t* mount_point,
 
     // Validate the image file exists
     if (!file_exists(image_path)) {
-        printf("  Error: file not found: %s\n", image_path_utf8);
+        printf("\n  %s %s\n", tr(
+            "Error: file not found:",
+            "Erro: arquivo nao encontrado:"),
+            image_path_utf8);
         if (interactive) pause_before_exit();
         return 1;
     }
 
     printf("\n");
-    printf("  Image:  %s\n", image_path_utf8);
-    wprintf(L"  Mount:  %s\\\n", mount_point);
+    printf("  --------------------------------------------------------\n");
+    printf("\n");
+    printf("  %s %s\n", tr("Image:", "Imagem:"), image_path_utf8);
+    wprintf(L"  %s %s\\\n", tr(L"Mount:", L"Drive:"), mount_point);
     printf("\n");
 
     // Create block device backed by the image file
+    printf("  %s", tr("Mounting...", "Montando..."));
+    fflush(stdout);
+
     struct ext4_blockdev* bdev = create_file_blockdev(image_path_utf8);
     if (!bdev) {
-        printf("  Error: could not open '%s'.\n", image_path_utf8);
-        printf("         Is the file a valid ext4 image?\n");
+        printf("\n\n  %s\n", tr(
+            "Error: could not open the image file.",
+            "Erro: nao foi possivel abrir o arquivo de imagem."));
+        printf("  %s\n", tr(
+            "Is it a valid ext4 image?",
+            "E uma imagem ext4 valida?"));
         if (interactive) pause_before_exit();
         return 1;
     }
@@ -191,36 +319,64 @@ static int run(const wchar_t* image_path, const wchar_t* mount_point,
     Ext4FileSystem fs;
     NTSTATUS status = fs.Mount(bdev, mount_point, true /* read-only */);
     if (!NT_SUCCESS(status)) {
+        printf("\n\n");
         if (status == 0xC0000035) {
-            wprintf(L"  Error: drive %s is already in use.\n", mount_point);
-            printf("         Pick a different letter.\n");
+            wprintf(L"  %s %s\n", tr(
+                L"Error: drive already in use:",
+                L"Erro: drive ja esta em uso:"),
+                mount_point);
+            printf("  %s\n", tr(
+                "Pick a different letter.",
+                "Escolha outra letra."));
+        } else if (status == 0xC0000022) {
+            wprintf(L"  %s %s\n", tr(
+                L"Error: access denied for drive:",
+                L"Erro: acesso negado ao drive:"),
+                mount_point);
+            printf("  %s\n", tr(
+                "Try a different letter (like Z: or Y:).",
+                "Tente outra letra (como Z: ou Y:)."));
         } else {
-            printf("  Error: failed to mount (NTSTATUS 0x%08lX).\n", status);
-            printf("         The file might not be a valid ext4 image.\n");
+            printf("  %s (0x%08lX)\n", tr(
+                "Error: failed to mount",
+                "Erro: falha ao montar"),
+                status);
+            printf("  %s\n", tr(
+                "The file might not be a valid ext4 image.",
+                "O arquivo pode nao ser uma imagem ext4 valida."));
         }
         destroy_file_blockdev(bdev);
         if (interactive) pause_before_exit();
         return 1;
     }
 
-    wprintf(L"  Mounted at %s (read-only).\n", mount_point);
+    printf(" OK!\n");
+    printf("\n");
+    wprintf(L"  %s %s\\ (%s)\n",
+        tr(L"Mounted at", L"Montado em"),
+        mount_point,
+        tr(L"read-only", L"somente leitura"));
     printf("\n");
 
     if (interactive) {
-        printf("  The drive is now accessible in File Explorer.\n");
-        printf("  Press Enter here to unmount and exit.\n");
+        printf("  %s\n", tr(
+            "Your Linux files are now in File Explorer!",
+            "Seus arquivos Linux estao no Explorador de Arquivos!"));
+        printf("  %s\n", tr(
+            "Press Enter here to unmount and exit.",
+            "Pressione Enter aqui para desmontar e sair."));
         printf("\n");
 
-        // In interactive mode, wait for Enter OR Ctrl+C
         g_stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
 
-        // Read stdin in a loop, checking both Enter and the stop event
         HANDLE stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
         HANDLE handles[] = { stdin_handle, g_stop_event };
         WaitForMultipleObjects(2, handles, FALSE, INFINITE);
     } else {
-        printf("  Press Ctrl+C to unmount.\n");
+        printf("  %s\n", tr(
+            "Press Ctrl+C to unmount.",
+            "Pressione Ctrl+C para desmontar."));
         printf("\n");
 
         g_stop_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -229,10 +385,11 @@ static int run(const wchar_t* image_path, const wchar_t* mount_point,
     }
 
     // Cleanup
-    printf("  Unmounting...\n");
+    printf("  %s", tr("Unmounting...", "Desmontando..."));
+    fflush(stdout);
     fs.Unmount();
     destroy_file_blockdev(bdev);
-    printf("  Done.\n");
+    printf(" OK!\n");
 
     if (interactive) {
         printf("\n");
@@ -246,9 +403,10 @@ int wmain(int argc, wchar_t* argv[])
 {
     // CLI mode: ext4windows <image> [drive]
     if (argc >= 2) {
-        // Check for --help / -h
-        if (wcscmp(argv[1], L"--help") == 0 || wcscmp(argv[1], L"-h") == 0) {
-            print_banner();
+        // Check for --help / -h / /?
+        if (wcscmp(argv[1], L"--help") == 0 ||
+            wcscmp(argv[1], L"-h") == 0 ||
+            wcscmp(argv[1], L"/?") == 0) {
             print_usage();
             return 0;
         }
@@ -257,13 +415,13 @@ int wmain(int argc, wchar_t* argv[])
         wchar_t mount_buf[8] = {};
 
         if (argc >= 3) {
-            // Drive letter provided
             wcsncpy(mount_buf, argv[2], 7);
         } else {
-            // Auto-pick a drive letter
             wchar_t letter = find_free_drive_letter();
             if (!letter) {
-                printf("  Error: no free drive letters available.\n");
+                printf("  %s\n", tr(
+                    "Error: no free drive letters available.",
+                    "Erro: nenhuma letra de drive disponivel."));
                 return 1;
             }
             swprintf(mount_buf, 8, L"%c:", letter);
@@ -274,7 +432,12 @@ int wmain(int argc, wchar_t* argv[])
     }
 
     // Interactive mode: no arguments
-    print_banner();
+    print_welcome();
+
+    g_lang = ask_language();
+    printf("\n");
+
+    print_help_text();
 
     wchar_t image_path[512] = {};
     if (!ask_image_path(image_path, 512)) {
