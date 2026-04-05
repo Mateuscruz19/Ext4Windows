@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <sddl.h>
 #include <winfsp/winfsp.h>
 
 extern "C" {
@@ -38,9 +39,19 @@ private:
         PSECURITY_DESCRIPTOR SecurityDescriptor,
         SIZE_T* PSecurityDescriptorSize);
 
+    static NTSTATUS NTAPI OnCreate(FSP_FILE_SYSTEM* FileSystem,
+        PWSTR FileName, UINT32 CreateOptions, UINT32 GrantedAccess,
+        UINT32 FileAttributes, PSECURITY_DESCRIPTOR SecurityDescriptor,
+        UINT64 AllocationSize,
+        PVOID* PFileContext, FSP_FSCTL_FILE_INFO* FileInfo);
+
     static NTSTATUS NTAPI OnOpen(FSP_FILE_SYSTEM* FileSystem,
         PWSTR FileName, UINT32 CreateOptions, UINT32 GrantedAccess,
         PVOID* PFileContext, FSP_FSCTL_FILE_INFO* FileInfo);
+
+    static NTSTATUS NTAPI OnOverwrite(FSP_FILE_SYSTEM* FileSystem,
+        PVOID FileContext, UINT32 FileAttributes, BOOLEAN ReplaceFileAttributes,
+        UINT64 AllocationSize, FSP_FSCTL_FILE_INFO* FileInfo);
 
     static VOID NTAPI OnClose(FSP_FILE_SYSTEM* FileSystem, PVOID FileContext);
 

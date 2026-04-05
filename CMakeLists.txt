@@ -35,3 +35,16 @@ target_compile_definitions(ext4windows PRIVATE
     _UNICODE
     NOMINMAX
 )
+
+# Copy winfsp-x64.dll next to the executable so it can find it at runtime
+get_filename_component(_winfsp_sdk_dir "${WINFSP_LIBRARY}" DIRECTORY)
+get_filename_component(_winfsp_root "${_winfsp_sdk_dir}" DIRECTORY)
+set(_winfsp_dll "${_winfsp_root}/bin/winfsp-x64.dll")
+if(EXISTS "${_winfsp_dll}")
+    add_custom_command(TARGET ext4windows POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_winfsp_dll}"
+            "$<TARGET_FILE_DIR:ext4windows>"
+        COMMENT "Copying winfsp-x64.dll to build directory"
+    )
+endif()

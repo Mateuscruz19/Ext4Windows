@@ -48,7 +48,9 @@ Ext4FileSystem::Ext4FileSystem()
     // Wire up callbacks — tell WinFsp which function to call for each operation
     iface_.GetVolumeInfo = &Ext4FileSystem::OnGetVolumeInfo;
     iface_.GetSecurityByName = &Ext4FileSystem::OnGetSecurityByName;
+    iface_.Create = &Ext4FileSystem::OnCreate;
     iface_.Open = &Ext4FileSystem::OnOpen;
+    iface_.Overwrite = &Ext4FileSystem::OnOverwrite;
     iface_.Close = &Ext4FileSystem::OnClose;
     iface_.Read = &Ext4FileSystem::OnRead;
     iface_.ReadDirectory = &Ext4FileSystem::OnReadDirectory;
@@ -81,6 +83,7 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
     // Create WinFsp filesystem
     FSP_FSCTL_VOLUME_PARAMS volume_params;
     std::memset(&volume_params, 0, sizeof(volume_params));
+    volume_params.Version = sizeof(FSP_FSCTL_VOLUME_PARAMS);
     volume_params.SectorSize = 512;
     volume_params.SectorsPerAllocationUnit = 8;  // 4KB allocation unit
     volume_params.MaxComponentLength = 255;
@@ -88,8 +91,11 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
     volume_params.CaseSensitiveSearch = FALSE;
     volume_params.CasePreservedNames = TRUE;
     volume_params.UnicodeOnDisk = TRUE;
-    volume_params.PersistentAcls = FALSE;
+    volume_params.PersistentAcls = TRUE;
     volume_params.ReadOnlyVolume = read_only ? TRUE : FALSE;
+    volume_params.PostCleanupWhenModifiedOnly = TRUE;
+    volume_params.PostDispositionWhenNecessaryOnly = TRUE;
+    volume_params.RejectIrpPriorToTransact0 = TRUE;
     wcscpy_s(volume_params.FileSystemName,
              sizeof(volume_params.FileSystemName) / sizeof(WCHAR), L"ext4");
 
@@ -244,11 +250,49 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetSecurityByName(FSP_FILE_SYSTEM* FileSystem,
     if (PFileAttributes)
         *PFileAttributes = file_info.FileAttributes;
 
-    // Return an empty security descriptor (everyone has access)
-    if (PSecurityDescriptorSize)
-        *PSecurityDescriptorSize = 0;
+    // Build a security descriptor that grants everyone full access.
+    // We use SDDL: D:P(A;;GA;;;WD) meaning "Allow Generic All to World (Everyone)"
+    if (PSecurityDescriptorSize) {
+        // Create the SD from SDDL string
+        PSECURITY_DESCRIPTOR sd = nullptr;
+        ULONG sd_size = 0;
+
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                L"O:BAG:BAD:(A;;0x1f01ff;;;WD)", SDDL_REVISION_1, &sd, &sd_size))
+            return STATUS_UNSUCCESSFUL;
+
+        if (*PSecurityDescriptorSize < sd_size) {
+            *PSecurityDescriptorSize = sd_size;
+            LocalFree(sd);
+            return STATUS_BUFFER_OVERFLOW;
+        }
+
+        *PSecurityDescriptorSize = sd_size;
+        if (SecurityDescriptor)
+            memcpy(SecurityDescriptor, sd, sd_size);
+
+        LocalFree(sd);
+    }
 
     return STATUS_SUCCESS;
+}
+
+NTSTATUS NTAPI Ext4FileSystem::OnCreate(FSP_FILE_SYSTEM* FileSystem,
+    PWSTR FileName, UINT32 CreateOptions, UINT32 GrantedAccess,
+    UINT32 FileAttributes, PSECURITY_DESCRIPTOR SecurityDescriptor,
+    UINT64 AllocationSize,
+    PVOID* PFileContext, FSP_FSCTL_FILE_INFO* FileInfo)
+{
+    // Read-only filesystem: cannot create new files
+    return STATUS_ACCESS_DENIED;
+}
+
+NTSTATUS NTAPI Ext4FileSystem::OnOverwrite(FSP_FILE_SYSTEM* FileSystem,
+    PVOID FileContext, UINT32 FileAttributes, BOOLEAN ReplaceFileAttributes,
+    UINT64 AllocationSize, FSP_FSCTL_FILE_INFO* FileInfo)
+{
+    // Read-only filesystem: cannot overwrite files
+    return STATUS_ACCESS_DENIED;
 }
 
 NTSTATUS NTAPI Ext4FileSystem::OnOpen(FSP_FILE_SYSTEM* FileSystem,
