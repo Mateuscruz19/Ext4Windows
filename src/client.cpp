@@ -1,11 +1,14 @@
 #include "client.hpp"
 #include "pipe_protocol.hpp"
+#include "partition_scanner.hpp"
 #include "debug_log.hpp"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 // Check if the server is already running by checking if the pipe exists.
 // Uses WaitNamedPipeW instead of CreateFileW to avoid consuming the
@@ -237,7 +240,43 @@ int client_main(int argc, wchar_t* argv[])
         return send_and_print("QUIT");
     }
 
+    // --- scan ---
+    if (subcmd == L"scan") {
+        // Scan requires user interaction (partition selection) and UAC
+        // elevation. We re-launch ourselves in legacy --scan mode which
+        // handles all of this. The user can then mount via "mount" subcommand.
+        wchar_t exe_path[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+
+        // Build args: --scan [drive] [--rw] [--debug]
+        std::wstring args = L"--scan";
+        bool rw = false;
+        for (int i = 2; i < argc; i++) {
+            if (wcscmp(argv[i], L"--rw") == 0) rw = true;
+            else if (wcscmp(argv[i], L"--debug") == 0) args += L" --debug";
+            else args += std::wstring(L" ") + argv[i];
+        }
+        if (rw) args += L" --rw";
+
+        // Run in same console (not detached) so user can interact
+        STARTUPINFOW si = {};
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi = {};
+
+        std::wstring cmd = std::wstring(L"\"") + exe_path + L"\" " + args;
+        CreateProcessW(nullptr, const_cast<LPWSTR>(cmd.c_str()),
+                        nullptr, nullptr, TRUE, 0,
+                        nullptr, nullptr, &si, &pi);
+
+        if (pi.hProcess) {
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+        return 0;
+    }
+
     fprintf(stderr, "  Unknown subcommand: %ls\n", subcmd.c_str());
-    fprintf(stderr, "  Available: mount, unmount, status, quit\n");
+    fprintf(stderr, "  Available: mount, unmount, status, scan, quit\n");
     return 1;
 }

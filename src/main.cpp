@@ -851,10 +851,11 @@ int wmain(int argc, wchar_t* argv[])
             return run_server();
         }
 
-        // Client subcommands: mount, unmount, status, quit
+        // Client subcommands: mount, unmount, status, scan, quit
         if (wcscmp(argv[1], L"mount") == 0 ||
             wcscmp(argv[1], L"unmount") == 0 ||
             wcscmp(argv[1], L"status") == 0 ||
+            wcscmp(argv[1], L"scan") == 0 ||
             wcscmp(argv[1], L"quit") == 0) {
             // Parse --debug before sending command
             for (int i = 2; i < argc; i++) {

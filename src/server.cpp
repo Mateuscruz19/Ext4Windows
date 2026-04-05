@@ -138,6 +138,26 @@ std::string MountManager::Status()
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
 
+    // Clean up ejected mounts: if the drive letter no longer exists
+    // in Windows, the user ejected it via Explorer. Remove the ghost.
+    DWORD drives = GetLogicalDrives();
+    std::vector<wchar_t> to_remove;
+    for (auto& [letter, entry] : mounts_) {
+        int bit = letter - L'A';
+        if (!(drives & (1 << bit))) {
+            dbg("Status: drive %c: was ejected, cleaning up", (char)letter);
+            to_remove.push_back(letter);
+        }
+    }
+    for (wchar_t letter : to_remove) {
+        auto& entry = mounts_[letter];
+        try { if (entry->bdev && entry->destroy_fn) entry->destroy_fn(entry->bdev); }
+        catch (...) {}
+        mounts_.erase(letter);
+    }
+    if (!to_remove.empty())
+        NotifyTray();
+
     if (mounts_.empty())
         return "OK No active mounts";
 
