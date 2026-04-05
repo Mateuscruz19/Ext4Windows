@@ -1,13 +1,18 @@
 #include <windows.h>
+#include <shellapi.h>
 #include <winfsp/winfsp.h>
 
 #include "ext4_filesystem.hpp"
 #include "blockdev_file.hpp"
+#include "blockdev_partition.hpp"
+#include "partition_scanner.hpp"
+#include "debug_log.hpp"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 // Global event used to signal the main thread to unmount and exit.
 // The Ctrl+C handler sets this event so WaitForSingleObject returns.
@@ -60,15 +65,19 @@ static void print_usage()
 {
     print_banner();
     printf("  USAGE:\n");
-    printf("    ext4windows <image-file> [drive-letter] [--rw]\n");
+    printf("    ext4windows <image-file> [drive-letter] [--rw] [--debug]\n");
+    printf("    ext4windows --scan                       Detect ext4 partitions\n");
     printf("\n");
     printf("  EXAMPLES:\n");
-    printf("    ext4windows C:\\linux.img Z:         Mount read-only on Z:\n");
-    printf("    ext4windows C:\\linux.img Z: --rw    Mount read-write on Z:\n");
-    printf("    ext4windows C:\\linux.img            Auto-pick drive letter\n");
+    printf("    ext4windows C:\\linux.img Z:              Mount .img read-only on Z:\n");
+    printf("    ext4windows C:\\linux.img Z: --rw         Mount .img read-write on Z:\n");
+    printf("    ext4windows --scan                       List ext4 partitions (as Admin)\n");
+    printf("    ext4windows \"\\\\?\\GLOBALROOT\\...\" Z:     Mount partition on Z:\n");
     printf("\n");
     printf("  OPTIONS:\n");
-    printf("    --rw    Mount with read-write access (default: read-only)\n");
+    printf("    --rw      Mount with read-write access (default: read-only)\n");
+    printf("    --debug   Print detailed debug log to stderr\n");
+    printf("    --scan    List ext4 partitions (run as Admin, mount without)\n");
     printf("\n");
     printf("  Run without arguments for interactive mode.\n");
     printf("\n");
@@ -305,49 +314,15 @@ static void pause_before_exit()
     getwchar();
 }
 
-// Mount and run until Ctrl+C or the stop event is signaled.
-static int run(const wchar_t* image_path, const wchar_t* mount_point,
-               bool interactive, bool read_only)
+// Shared function: once we have a blockdev, mount it and wait for exit.
+// source_label is what we display (image path or partition name).
+// destroy_fn is the cleanup function for the blockdev.
+static int mount_and_wait(struct ext4_blockdev* bdev,
+                          const wchar_t* mount_point,
+                          const wchar_t* source_label,
+                          bool interactive, bool read_only,
+                          void (*destroy_fn)(struct ext4_blockdev*))
 {
-    // Convert image path to UTF-8 for lwext4
-    char image_path_utf8[512] = {};
-    WideCharToMultiByte(CP_UTF8, 0, image_path, -1,
-                        image_path_utf8, sizeof(image_path_utf8),
-                        nullptr, nullptr);
-
-    // Validate the image file exists
-    if (!file_exists(image_path)) {
-        printf("\n  %s %s\n", tr(
-            "Error: file not found:",
-            "Erro: arquivo nao encontrado:"),
-            image_path_utf8);
-        if (interactive) pause_before_exit();
-        return 1;
-    }
-
-    printf("\n");
-    printf("  --------------------------------------------------------\n");
-    printf("\n");
-    printf("  %s %s\n", tr("Image:", "Imagem:"), image_path_utf8);
-    wprintf(L"  %s %s\\\n", tr(L"Mount:", L"Drive:"), mount_point);
-    printf("\n");
-
-    // Create block device backed by the image file
-    printf("  %s", tr("Mounting...", "Montando..."));
-    fflush(stdout);
-
-    struct ext4_blockdev* bdev = create_file_blockdev(image_path_utf8);
-    if (!bdev) {
-        printf("\n\n  %s\n", tr(
-            "Error: could not open the image file.",
-            "Erro: nao foi possivel abrir o arquivo de imagem."));
-        printf("  %s\n", tr(
-            "Is it a valid ext4 image?",
-            "E uma imagem ext4 valida?"));
-        if (interactive) pause_before_exit();
-        return 1;
-    }
-
     // Mount the ext4 filesystem via WinFsp
     Ext4FileSystem fs;
     NTSTATUS status = fs.Mount(bdev, mount_point, read_only);
@@ -374,11 +349,8 @@ static int run(const wchar_t* image_path, const wchar_t* mount_point,
                 "Error: failed to mount",
                 "Erro: falha ao montar"),
                 status);
-            printf("  %s\n", tr(
-                "The file might not be a valid ext4 image.",
-                "O arquivo pode nao ser uma imagem ext4 valida."));
         }
-        destroy_file_blockdev(bdev);
+        destroy_fn(bdev);
         if (interactive) pause_before_exit();
         return 1;
     }
@@ -423,7 +395,7 @@ static int run(const wchar_t* image_path, const wchar_t* mount_point,
     printf("  %s", tr("Unmounting...", "Desmontando..."));
     fflush(stdout);
     fs.Unmount();
-    destroy_file_blockdev(bdev);
+    destroy_fn(bdev);
     printf(" OK!\n");
 
     if (interactive) {
@@ -434,9 +406,420 @@ static int run(const wchar_t* image_path, const wchar_t* mount_point,
     return 0;
 }
 
+// Mount an .img file and run until Ctrl+C or the stop event is signaled.
+static int run(const wchar_t* image_path, const wchar_t* mount_point,
+               bool interactive, bool read_only)
+{
+    // Convert image path to UTF-8 for lwext4
+    char image_path_utf8[512] = {};
+    WideCharToMultiByte(CP_UTF8, 0, image_path, -1,
+                        image_path_utf8, sizeof(image_path_utf8),
+                        nullptr, nullptr);
+
+    // Validate the image file exists
+    if (!file_exists(image_path)) {
+        printf("\n  %s %s\n", tr(
+            "Error: file not found:",
+            "Erro: arquivo nao encontrado:"),
+            image_path_utf8);
+        if (interactive) pause_before_exit();
+        return 1;
+    }
+
+    printf("\n");
+    printf("  --------------------------------------------------------\n");
+    printf("\n");
+    printf("  %s %s\n", tr("Image:", "Imagem:"), image_path_utf8);
+    wprintf(L"  %s %s\\\n", tr(L"Mount:", L"Drive:"), mount_point);
+    printf("\n");
+
+    // Create block device backed by the image file
+    printf("  %s", tr("Mounting...", "Montando..."));
+    fflush(stdout);
+
+    struct ext4_blockdev* bdev = create_file_blockdev(image_path_utf8);
+    if (!bdev) {
+        printf("\n\n  %s\n", tr(
+            "Error: could not open the image file.",
+            "Erro: nao foi possivel abrir o arquivo de imagem."));
+        printf("  %s\n", tr(
+            "Is it a valid ext4 image?",
+            "E uma imagem ext4 valida?"));
+        if (interactive) pause_before_exit();
+        return 1;
+    }
+
+    return mount_and_wait(bdev, mount_point, image_path, interactive,
+                          read_only, destroy_file_blockdev);
+}
+
+// Forward declarations for functions defined later in this file
+static bool is_elevated();
+static HANDLE open_device_elevated(const wchar_t* device_path, bool read_only);
+
+// Mount a real partition and run until Ctrl+C or the stop event is signaled.
+static int run_partition(const wchar_t* device_path,
+                         const wchar_t* display_name,
+                         const wchar_t* mount_point,
+                         bool interactive, bool read_only)
+{
+    printf("\n");
+    printf("  --------------------------------------------------------\n");
+    printf("\n");
+    wprintf(L"  %s %s\n", tr(L"Partition:", L"Particao:"), display_name);
+    wprintf(L"  %s %s\\\n", tr(L"Mount:", L"Drive:"), mount_point);
+    if (read_only) {
+        printf("  %s\n", tr("Mode: read-only (safe)",
+                             "Modo: somente leitura (seguro)"));
+    } else {
+        printf("  %s\n", tr("Mode: read-write",
+                             "Modo: leitura e escrita"));
+    }
+    printf("\n");
+
+    printf("  %s", tr("Mounting...", "Montando..."));
+    fflush(stdout);
+
+    struct ext4_blockdev* bdev = nullptr;
+
+    if (is_elevated()) {
+        // Already admin: open directly
+        bdev = create_partition_blockdev(device_path, read_only);
+    } else {
+        // Not admin: get handle via elevated subprocess
+        HANDLE h = open_device_elevated(device_path, read_only);
+        if (h != INVALID_HANDLE_VALUE) {
+            bdev = create_partition_blockdev_from_handle(h, read_only);
+        }
+    }
+
+    if (!bdev) {
+        printf("\n\n  %s\n", tr(
+            "Error: could not open the partition.",
+            "Erro: nao foi possivel abrir a particao."));
+        printf("  %s\n", tr(
+            "Make sure you approved the Administrator prompt.",
+            "Certifique-se de aprovar o prompt de Administrador."));
+        if (interactive) pause_before_exit();
+        return 1;
+    }
+
+    return mount_and_wait(bdev, mount_point, display_name, interactive,
+                          read_only, destroy_partition_blockdev);
+}
+
+// Check if a path looks like a Windows device path (starts with \\ or //)
+static bool is_device_path(const wchar_t* path)
+{
+    return path && wcslen(path) > 4 &&
+           (wcsncmp(path, L"\\\\", 2) == 0 || wcsncmp(path, L"//", 2) == 0);
+}
+
+// Check if the current process is running as Administrator.
+static bool is_elevated()
+{
+    BOOL elevated = FALSE;
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        TOKEN_ELEVATION elev = {};
+        DWORD size = sizeof(elev);
+        if (GetTokenInformation(token, TokenElevation, &elev, sizeof(elev), &size)) {
+            elevated = elev.TokenIsElevated;
+        }
+        CloseHandle(token);
+    }
+    return elevated != FALSE;
+}
+
+// Launch an elevated subprocess to scan for partitions.
+// The subprocess writes results to a temp file, which we read back.
+static std::vector<PartitionInfo> scan_with_elevation()
+{
+    std::vector<PartitionInfo> results;
+
+    wchar_t temp_dir[MAX_PATH] = {};
+    GetTempPathW(MAX_PATH, temp_dir);
+    std::wstring temp_file = std::wstring(temp_dir) + L"ext4windows_scan.txt";
+    DeleteFileW(temp_file.c_str());
+
+    wchar_t exe_path[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+
+    std::wstring args = L"--scan-save \"" + temp_file + L"\"";
+
+    printf("  %s\n", tr(
+        "Requesting Administrator access to scan disks...",
+        "Solicitando acesso de Administrador para escanear discos..."));
+    printf("\n");
+
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = exe_path;
+    sei.lpParameters = args.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_CANCELLED) {
+            printf("  %s\n", tr(
+                "Administrator access was denied.",
+                "Acesso de Administrador foi negado."));
+        }
+        return results;
+    }
+
+    WaitForSingleObject(sei.hProcess, 30000);
+    CloseHandle(sei.hProcess);
+
+    FILE* f = _wfopen(temp_file.c_str(), L"r, ccs=UTF-8");
+    if (!f)
+        return results;
+
+    wchar_t line[512];
+    while (fgetws(line, 512, f)) {
+        size_t len = wcslen(line);
+        if (len > 0 && line[len - 1] == L'\n')
+            line[len - 1] = L'\0';
+
+        wchar_t* ctx = nullptr;
+        wchar_t* dev = wcstok(line, L"|", &ctx);
+        wchar_t* disp = wcstok(nullptr, L"|", &ctx);
+        wchar_t* sz = wcstok(nullptr, L"|", &ctx);
+        wchar_t* dk = wcstok(nullptr, L"|", &ctx);
+        wchar_t* pn = wcstok(nullptr, L"|", &ctx);
+
+        if (dev && disp && sz && dk && pn) {
+            PartitionInfo info;
+            info.device_path = dev;
+            info.display_name = disp;
+            info.size_bytes = _wcstoui64(sz, nullptr, 10);
+            info.disk_number = _wtoi(dk);
+            info.partition_number = _wtoi(pn);
+            results.push_back(info);
+        }
+    }
+
+    fclose(f);
+    DeleteFileW(temp_file.c_str());
+    return results;
+}
+
+// Launch an elevated subprocess to open a device handle and duplicate it
+// into this (non-admin) process. Returns the duplicated HANDLE or
+// INVALID_HANDLE_VALUE on failure.
+static HANDLE open_device_elevated(const wchar_t* device_path, bool read_only)
+{
+    wchar_t temp_dir[MAX_PATH] = {};
+    GetTempPathW(MAX_PATH, temp_dir);
+    std::wstring temp_file = std::wstring(temp_dir) + L"ext4windows_handle.txt";
+    DeleteFileW(temp_file.c_str());
+
+    wchar_t exe_path[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+
+    // Pass: --open-device <device_path> <parent_pid> <temp_file> [--rw]
+    wchar_t pid_str[32];
+    swprintf(pid_str, 32, L"%lu", GetCurrentProcessId());
+
+    std::wstring args = L"--open-device \"";
+    args += device_path;
+    args += L"\" ";
+    args += pid_str;
+    args += L" \"";
+    args += temp_file;
+    args += L"\"";
+    if (!read_only)
+        args += L" --rw";
+
+    printf("  %s\n", tr(
+        "Requesting Administrator access to open partition...",
+        "Solicitando acesso de Administrador para abrir particao..."));
+
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = exe_path;
+    sei.lpParameters = args.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei)) {
+        printf("  %s\n", tr(
+            "Administrator access was denied.",
+            "Acesso de Administrador foi negado."));
+        return INVALID_HANDLE_VALUE;
+    }
+
+    WaitForSingleObject(sei.hProcess, 15000);
+    CloseHandle(sei.hProcess);
+
+    // Read the duplicated handle value from the temp file
+    FILE* f = _wfopen(temp_file.c_str(), L"r");
+    if (!f)
+        return INVALID_HANDLE_VALUE;
+
+    unsigned long long handle_val = 0;
+    if (fscanf(f, "%llu", &handle_val) != 1)
+        handle_val = 0;
+    fclose(f);
+    DeleteFileW(temp_file.c_str());
+
+    if (handle_val == 0)
+        return INVALID_HANDLE_VALUE;
+
+    return reinterpret_cast<HANDLE>(static_cast<uintptr_t>(handle_val));
+}
+
+// Subprocess: open device as admin, duplicate handle into parent process.
+static int do_open_device(const wchar_t* device_path, DWORD parent_pid,
+                          const wchar_t* output_path, bool read_only)
+{
+    DWORD access = read_only ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE);
+
+    HANDLE h = CreateFileW(device_path, access,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_NO_BUFFERING, nullptr);
+
+    if (h == INVALID_HANDLE_VALUE)
+        return 1;
+
+    // Open the parent process so we can duplicate the handle into it
+    HANDLE parent = OpenProcess(PROCESS_DUP_HANDLE, FALSE, parent_pid);
+    if (!parent) {
+        CloseHandle(h);
+        return 1;
+    }
+
+    HANDLE dup_handle = INVALID_HANDLE_VALUE;
+    BOOL ok = DuplicateHandle(
+        GetCurrentProcess(), h,       // source
+        parent, &dup_handle,           // target
+        0, FALSE, DUPLICATE_SAME_ACCESS);
+
+    CloseHandle(h);
+    CloseHandle(parent);
+
+    if (!ok)
+        return 1;
+
+    // Write the handle value (as seen by the parent process) to the file
+    FILE* f = _wfopen(output_path, L"w");
+    if (!f)
+        return 1;
+
+    fprintf(f, "%llu",
+            static_cast<unsigned long long>(
+                reinterpret_cast<uintptr_t>(dup_handle)));
+    fclose(f);
+
+    return 0;
+}
+
+// Save scan results to a file (used by --scan-save subprocess).
+static int do_scan_save(const wchar_t* output_path)
+{
+    auto partitions = scan_ext4_partitions();
+
+    FILE* f = _wfopen(output_path, L"w, ccs=UTF-8");
+    if (!f)
+        return 1;
+
+    for (auto& p : partitions) {
+        fwprintf(f, L"%s|%s|%llu|%d|%d\n",
+                 p.device_path.c_str(),
+                 p.display_name.c_str(),
+                 p.size_bytes,
+                 p.disk_number,
+                 p.partition_number);
+    }
+
+    fclose(f);
+    return 0;
+}
+
+// Scan for ext4 partitions and list them. Handles elevation automatically.
+static int do_scan(const wchar_t* mount_point, bool interactive,
+                   bool read_only)
+{
+    printf("\n");
+    printf("  %s\n", tr(
+        "Scanning for ext4 partitions...",
+        "Buscando particoes ext4..."));
+    printf("\n");
+
+    // Scan for partitions — elevates automatically if needed
+    std::vector<PartitionInfo> partitions;
+    if (is_elevated()) {
+        partitions = scan_ext4_partitions();
+    } else {
+        partitions = scan_with_elevation();
+    }
+
+    if (partitions.empty()) {
+        printf("  %s\n", tr(
+            "No ext4 partitions found.",
+            "Nenhuma particao ext4 encontrada."));
+        if (interactive) pause_before_exit();
+        return 1;
+    }
+
+    printf("  %s\n", tr(
+        "Found ext4 partitions:",
+        "Particoes ext4 encontradas:"));
+    printf("\n");
+
+    for (size_t i = 0; i < partitions.size(); i++) {
+        wprintf(L"    [%zu] %s\n", i + 1, partitions[i].display_name.c_str());
+    }
+    printf("\n");
+
+    if (!interactive) {
+        // CLI --scan mode: auto-mount first partition
+        if (partitions.size() > 1) {
+            wprintf(L"  %s %s\n", tr(
+                L"Multiple partitions found. Using first:",
+                L"Multiplas particoes encontradas. Usando a primeira:"),
+                partitions[0].display_name.c_str());
+        }
+        return run_partition(partitions[0].device_path.c_str(),
+                             partitions[0].display_name.c_str(),
+                             mount_point, false, read_only);
+    }
+
+    // Interactive mode: let user pick
+    printf("  %s\n", tr(
+        "Choose a partition (or 0 to cancel):",
+        "Escolha uma particao (ou 0 para cancelar):"));
+    printf("\n");
+    printf("  > ");
+    fflush(stdout);
+
+    wchar_t input[64] = {};
+    if (!read_line(input, 64))
+        return -1;
+
+    int num = _wtoi(input);
+    if (num <= 0 || num > (int)partitions.size()) {
+        printf("\n  %s\n", tr("Cancelled.", "Cancelado."));
+        return -1;
+    }
+
+    size_t choice = (size_t)(num - 1);
+    auto& part = partitions[choice];
+
+    wprintf(L"\n  %s %s\n", tr(L"Selected:", L"Selecionado:"),
+            part.display_name.c_str());
+
+    return run_partition(part.device_path.c_str(),
+                         part.display_name.c_str(),
+                         mount_point, interactive, read_only);
+}
+
 int wmain(int argc, wchar_t* argv[])
 {
-    // CLI mode: ext4windows <image> [drive]
+    // CLI mode: ext4windows <image> [drive] or ext4windows --scan [drive]
     if (argc >= 2) {
         // Check for --help / -h / /?
         if (wcscmp(argv[1], L"--help") == 0 ||
@@ -446,12 +829,58 @@ int wmain(int argc, wchar_t* argv[])
             return 0;
         }
 
-        const wchar_t* image_path = argv[1];
-        wchar_t mount_buf[8] = {};
+        // Internal command: --scan-save <file> (elevated subprocess)
+        if (wcscmp(argv[1], L"--scan-save") == 0 && argc >= 3) {
+            return do_scan_save(argv[2]);
+        }
 
-        if (argc >= 3) {
-            wcsncpy(mount_buf, argv[2], 7);
-        } else {
+        // Internal command: --open-device <path> <pid> <file> [--rw]
+        if (wcscmp(argv[1], L"--open-device") == 0 && argc >= 5) {
+            bool rw = false;
+            for (int i = 5; i < argc; i++) {
+                if (wcscmp(argv[i], L"--rw") == 0) rw = true;
+            }
+            return do_open_device(argv[2],
+                                  static_cast<DWORD>(_wtoi(argv[3])),
+                                  argv[4], !rw);
+        }
+
+        // Parse CLI flags first (they can appear anywhere)
+        bool cli_read_only = true;
+        bool cli_scan = false;
+        for (int i = 1; i < argc; i++) {
+            if (wcscmp(argv[i], L"--rw") == 0)
+                cli_read_only = false;
+            if (wcscmp(argv[i], L"--debug") == 0)
+                g_debug = true;
+            if (wcscmp(argv[i], L"--scan") == 0)
+                cli_scan = true;
+        }
+
+        // Find the mount point argument: first non-flag arg that looks
+        // like a drive letter (e.g. "Z:" or "Z")
+        wchar_t mount_buf[8] = {};
+        const wchar_t* image_path = nullptr;
+
+        for (int i = 1; i < argc; i++) {
+            // Skip flags
+            if (argv[i][0] == L'-')
+                continue;
+
+            // Check if it looks like a drive letter (1 or 2 chars, A-Z)
+            size_t len = wcslen(argv[i]);
+            wchar_t first = towupper(argv[i][0]);
+            if (len <= 2 && first >= L'A' && first <= L'Z' &&
+                (len == 1 || argv[i][1] == L':')) {
+                swprintf(mount_buf, 8, L"%c:", first);
+            } else if (!image_path) {
+                // It's the image path (first non-flag, non-drive arg)
+                image_path = argv[i];
+            }
+        }
+
+        // Auto-pick drive letter if none specified
+        if (mount_buf[0] == L'\0') {
             wchar_t letter = find_free_drive_letter();
             if (!letter) {
                 printf("  %s\n", tr(
@@ -462,15 +891,24 @@ int wmain(int argc, wchar_t* argv[])
             swprintf(mount_buf, 8, L"%c:", letter);
         }
 
-        // CLI: --rw flag para leitura+escrita, senão read-only
-        bool cli_read_only = true;
-        for (int i = 1; i < argc; i++) {
-            if (wcscmp(argv[i], L"--rw") == 0) {
-                cli_read_only = false;
-            }
+        print_banner();
+
+        if (cli_scan) {
+            // --scan mode: auto-detect ext4 partitions
+            return do_scan(mount_buf, false, cli_read_only);
         }
 
-        print_banner();
+        if (!image_path) {
+            print_usage();
+            return 1;
+        }
+
+        // If the path looks like a device path, mount as partition
+        if (is_device_path(image_path)) {
+            return run_partition(image_path, image_path, mount_buf,
+                                false, cli_read_only);
+        }
+
         return run(image_path, mount_buf, false, cli_read_only);
     }
 
@@ -482,6 +920,46 @@ int wmain(int argc, wchar_t* argv[])
 
     print_help_text();
 
+    // Ask: use image file or scan for partitions?
+    printf("  %s\n", tr(
+        "CHOOSE SOURCE",
+        "ESCOLHA A ORIGEM"));
+    printf("  %s\n", tr(
+        "  [1] Open an ext4 image file (.img)",
+        "  [1] Abrir um arquivo de imagem ext4 (.img)"));
+    printf("  %s\n", tr(
+        "  [2] Scan for ext4 partitions (requires Admin)",
+        "  [2] Buscar particoes ext4 (requer Administrador)"));
+    printf("\n");
+    printf("  > ");
+    fflush(stdout);
+
+    wchar_t source_choice[64] = {};
+    if (!read_line(source_choice, 64)) {
+        pause_before_exit();
+        return 1;
+    }
+
+    if (source_choice[0] == L'2') {
+        // Scan mode
+        wchar_t mount_point[8] = {};
+        if (!ask_drive_letter(mount_point, 8)) {
+            pause_before_exit();
+            return 1;
+        }
+
+        bool read_only = ask_read_write();
+
+        int result = do_scan(mount_point, true, read_only);
+        if (result == -1) {
+            // User cancelled — let them try again or exit
+            pause_before_exit();
+            return 0;
+        }
+        return result;
+    }
+
+    // Default: image file mode
     wchar_t image_path[512] = {};
     if (!ask_image_path(image_path, 512)) {
         pause_before_exit();
