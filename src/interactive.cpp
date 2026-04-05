@@ -59,6 +59,22 @@ static void init_console()
     SetConsoleTitleW(L"Ext4Windows");
     SetConsoleOutputCP(65001);
     SetConsoleCP(65001);
+
+    // Set the console window icon to our app icon (embedded in the .exe).
+    // GetConsoleWindow() returns the HWND of this console window.
+    // LoadIconW with MAKEINTRESOURCEW(1) loads IDI_APPICON (ID=1) from ext4windows.rc.
+    // WM_SETICON tells the window to use our icon instead of the default terminal icon.
+    // ICON_BIG = taskbar/alt-tab icon, ICON_SMALL = title bar icon.
+    // Docs: https://learn.microsoft.com/en-us/windows/console/getconsolewindow
+    //       https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-seticon
+    HWND hwndConsole = GetConsoleWindow();
+    if (hwndConsole) {
+        HICON hIcon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1));
+        if (hIcon) {
+            SendMessageW(hwndConsole, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+            SendMessageW(hwndConsole, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
