@@ -71,12 +71,15 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
 
     // Register and mount via lwext4
     int rc = ext4_device_register(bdev_, "ext4dev");
-    if (rc != EOK)
+    if (rc != EOK) {
+        bdev_ = nullptr;
         return STATUS_UNSUCCESSFUL;
+    }
 
     rc = ext4_mount("ext4dev", MOUNT_POINT, read_only);
     if (rc != EOK) {
         ext4_device_unregister("ext4dev");
+        bdev_ = nullptr;
         return STATUS_UNSUCCESSFUL;
     }
 
@@ -108,6 +111,7 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
     if (!NT_SUCCESS(status)) {
         ext4_umount(MOUNT_POINT);
         ext4_device_unregister("ext4dev");
+        bdev_ = nullptr;
         return status;
     }
 
@@ -119,6 +123,7 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
         fs_ = nullptr;
         ext4_umount(MOUNT_POINT);
         ext4_device_unregister("ext4dev");
+        bdev_ = nullptr;
         return status;
     }
 
@@ -128,6 +133,7 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
         fs_ = nullptr;
         ext4_umount(MOUNT_POINT);
         ext4_device_unregister("ext4dev");
+        bdev_ = nullptr;
         return status;
     }
 
