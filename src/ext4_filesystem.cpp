@@ -1,5 +1,6 @@
 #include "ext4_filesystem.hpp"
 
+#include <cstdio>
 #include <cstring>
 #include <algorithm>
 #include <vector>
@@ -53,8 +54,14 @@ Ext4FileSystem::Ext4FileSystem()
     iface_.Overwrite = &Ext4FileSystem::OnOverwrite;
     iface_.Close = &Ext4FileSystem::OnClose;
     iface_.Read = &Ext4FileSystem::OnRead;
+    iface_.Write = &Ext4FileSystem::OnWrite;
     iface_.ReadDirectory = &Ext4FileSystem::OnReadDirectory;
     iface_.GetFileInfo = &Ext4FileSystem::OnGetFileInfo;
+    iface_.SetBasicInfo = &Ext4FileSystem::OnSetBasicInfo;
+    iface_.SetFileSize = &Ext4FileSystem::OnSetFileSize;
+    iface_.CanDelete = &Ext4FileSystem::OnCanDelete;
+    iface_.Rename = &Ext4FileSystem::OnRename;
+    iface_.Flush = &Ext4FileSystem::OnFlush;
     iface_.Cleanup = &Ext4FileSystem::OnCleanup;
 }
 
@@ -96,9 +103,8 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
     volume_params.UnicodeOnDisk = TRUE;
     volume_params.PersistentAcls = TRUE;
     volume_params.ReadOnlyVolume = read_only ? TRUE : FALSE;
-    volume_params.PostCleanupWhenModifiedOnly = TRUE;
-    volume_params.PostDispositionWhenNecessaryOnly = TRUE;
-    volume_params.RejectIrpPriorToTransact0 = TRUE;
+    // Removed PostCleanupWhenModifiedOnly and PostDispositionWhenNecessaryOnly
+    // as they caused duplicate OnClose calls from WinFsp internal threads.
     wcscpy_s(volume_params.FileSystemName,
              sizeof(volume_params.FileSystemName) / sizeof(WCHAR), L"ext4");
 
@@ -127,7 +133,9 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
         return status;
     }
 
-    status = FspFileSystemStartDispatcher(fs_, 0);
+    // Use 1 dispatcher thread. lwext4 is not thread-safe, so concurrent
+    // callbacks corrupt its internal state. A mutex protects all calls.
+    status = FspFileSystemStartDispatcher(fs_, 1);
     if (!NT_SUCCESS(status)) {
         FspFileSystemDelete(fs_);
         fs_ = nullptr;
@@ -160,6 +168,8 @@ void Ext4FileSystem::Unmount()
 NTSTATUS NTAPI Ext4FileSystem::OnGetVolumeInfo(FSP_FILE_SYSTEM* FileSystem,
     FSP_FSCTL_VOLUME_INFO* VolumeInfo)
 {
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
     struct ext4_mount_stats stats;
     std::memset(&stats, 0, sizeof(stats));
 
@@ -242,16 +252,21 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetSecurityByName(FSP_FILE_SYSTEM* FileSystem,
     PSECURITY_DESCRIPTOR SecurityDescriptor,
     SIZE_T* PSecurityDescriptorSize)
 {
+
     auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
     std::string path = self->ToExt4Path(FileName);
+
 
     // Check if the file/directory exists and get attributes
     FSP_FSCTL_FILE_INFO file_info;
     std::memset(&file_info, 0, sizeof(file_info));
 
     NTSTATUS status = self->FillFileInfo(path.c_str(), &file_info);
-    if (!NT_SUCCESS(status))
+    if (!NT_SUCCESS(status)) {
+
         return status;
+    }
 
     if (PFileAttributes)
         *PFileAttributes = file_info.FileAttributes;
@@ -280,6 +295,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetSecurityByName(FSP_FILE_SYSTEM* FileSystem,
         LocalFree(sd);
     }
 
+
     return STATUS_SUCCESS;
 }
 
@@ -289,24 +305,118 @@ NTSTATUS NTAPI Ext4FileSystem::OnCreate(FSP_FILE_SYSTEM* FileSystem,
     UINT64 AllocationSize,
     PVOID* PFileContext, FSP_FSCTL_FILE_INFO* FileInfo)
 {
-    // Read-only filesystem: cannot create new files
-    return STATUS_ACCESS_DENIED;
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::string path = self->ToExt4Path(FileName);
+
+    bool is_directory = (CreateOptions & FILE_DIRECTORY_FILE) != 0;
+
+    if (is_directory) {
+        // Create directory on the ext4 filesystem
+        int rc = ext4_dir_mk(path.c_str());
+        if (rc != EOK)
+            return STATUS_UNSUCCESSFUL;
+
+        // Open the newly created directory to return a handle to WinFsp
+        auto* ctx = new Ext4FileContext{};
+        ctx->path.assign(FileName);
+        ctx->is_directory = true;
+        std::memset(&ctx->dir, 0, sizeof(ctx->dir));
+
+        rc = ext4_dir_open(&ctx->dir, path.c_str());
+        if (rc != EOK) {
+            delete ctx;
+            return STATUS_UNSUCCESSFUL;
+        }
+
+        NTSTATUS status = self->FillFileInfo(path.c_str(), FileInfo);
+        if (!NT_SUCCESS(status)) {
+            ext4_dir_close(&ctx->dir);
+            delete ctx;
+            return status;
+        }
+
+        *PFileContext = ctx;
+        self->valid_contexts_.insert(ctx);
+    } else {
+        ext4_file f;
+        std::memset(&f, 0, sizeof(f));
+
+        int rc = ext4_fopen(&f, path.c_str(), "wb");
+        if (rc != EOK)
+            return STATUS_UNSUCCESSFUL;
+        ext4_fclose(&f);
+
+        // Reopen for read+write
+        auto* ctx = new Ext4FileContext{};
+        ctx->path.assign(FileName);
+        ctx->is_directory = false;
+        std::memset(&ctx->file, 0, sizeof(ctx->file));
+
+        rc = ext4_fopen(&ctx->file, path.c_str(), "r+b");
+        if (rc != EOK) {
+            delete ctx;
+            return STATUS_UNSUCCESSFUL;
+        }
+
+        NTSTATUS status = self->FillFileInfo(path.c_str(), FileInfo);
+        if (!NT_SUCCESS(status)) {
+            ext4_fclose(&ctx->file);
+            delete ctx;
+            return status;
+        }
+
+        *PFileContext = ctx;
+        self->valid_contexts_.insert(ctx);
+    }
+
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS NTAPI Ext4FileSystem::OnOverwrite(FSP_FILE_SYSTEM* FileSystem,
     PVOID FileContext, UINT32 FileAttributes, BOOLEAN ReplaceFileAttributes,
     UINT64 AllocationSize, FSP_FSCTL_FILE_INFO* FileInfo)
 {
-    // Read-only filesystem: cannot overwrite files
-    return STATUS_ACCESS_DENIED;
+    // Overwrite: truncate existing file to 0 bytes and reopen for writing.
+
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    auto* ctx = static_cast<Ext4FileContext*>(FileContext);
+    if (!ctx || ctx->is_directory)
+        return STATUS_INVALID_DEVICE_REQUEST;
+
+    std::string path = self->ToExt4Path(ctx->path.c_str());
+    ext4_fclose(&ctx->file);
+
+    ext4_file f;
+    std::memset(&f, 0, sizeof(f));
+
+    int rc = ext4_fopen(&f, path.c_str(), "wb");
+    if (rc != EOK) {
+        // Try to reopen in old mode to keep ctx valid
+        ext4_fopen(&ctx->file, path.c_str(), "r+b");
+        return STATUS_UNSUCCESSFUL;
+    }
+    ext4_fclose(&f);
+
+    // Reabrir para leitura+escrita
+    std::memset(&ctx->file, 0, sizeof(ctx->file));
+    rc = ext4_fopen(&ctx->file, path.c_str(), "r+b");
+    if (rc != EOK)
+        return STATUS_UNSUCCESSFUL;
+
+    return self->FillFileInfo(path.c_str(), FileInfo);
 }
 
 NTSTATUS NTAPI Ext4FileSystem::OnOpen(FSP_FILE_SYSTEM* FileSystem,
     PWSTR FileName, UINT32 CreateOptions, UINT32 GrantedAccess,
     PVOID* PFileContext, FSP_FSCTL_FILE_INFO* FileInfo)
 {
+
     auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
     std::string path = self->ToExt4Path(FileName);
+
 
     auto* ctx = new Ext4FileContext{};
     ctx->path.assign(FileName);
@@ -322,10 +432,16 @@ NTSTATUS NTAPI Ext4FileSystem::OnOpen(FSP_FILE_SYSTEM* FileSystem,
         ctx->is_directory = false;
         std::memset(&ctx->file, 0, sizeof(ctx->file));
 
-        int rc = ext4_fopen(&ctx->file, path.c_str(), "rb");
+        // Open read+write when volume is writable, read-only otherwise.
+        const char* mode = self->read_only_ ? "rb" : "r+b";
+        int rc = ext4_fopen(&ctx->file, path.c_str(), mode);
         if (rc != EOK) {
-            delete ctx;
-            return STATUS_OBJECT_NAME_NOT_FOUND;
+            // Fallback to read-only if r+b fails
+            rc = ext4_fopen(&ctx->file, path.c_str(), "rb");
+            if (rc != EOK) {
+                delete ctx;
+                return STATUS_OBJECT_NAME_NOT_FOUND;
+            }
         }
     }
 
@@ -340,13 +456,23 @@ NTSTATUS NTAPI Ext4FileSystem::OnOpen(FSP_FILE_SYSTEM* FileSystem,
     }
 
     *PFileContext = ctx;
+    self->valid_contexts_.insert(ctx);
+
     return STATUS_SUCCESS;
 }
 
 VOID NTAPI Ext4FileSystem::OnClose(FSP_FILE_SYSTEM* FileSystem, PVOID FileContext)
 {
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx) return;
+
+    // Guard against double-close: WinFsp internal threads may call
+    // OnClose twice for the same context pointer.
+    if (self->valid_contexts_.find(ctx) == self->valid_contexts_.end())
+        return;
+    self->valid_contexts_.erase(ctx);
 
     if (ctx->is_directory)
         ext4_dir_close(&ctx->dir);
@@ -360,11 +486,12 @@ NTSTATUS NTAPI Ext4FileSystem::OnRead(FSP_FILE_SYSTEM* FileSystem,
     PVOID FileContext, PVOID Buffer, UINT64 Offset, ULONG Length,
     PULONG PBytesTransferred)
 {
+
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx || ctx->is_directory)
         return STATUS_INVALID_DEVICE_REQUEST;
-
-    auto* self = GetSelf(FileSystem);
     std::string path = self->ToExt4Path(ctx->path.c_str());
 
     // Reopen for reading at the right offset
@@ -389,32 +516,90 @@ NTSTATUS NTAPI Ext4FileSystem::OnRead(FSP_FILE_SYSTEM* FileSystem,
         return STATUS_UNSUCCESSFUL;
 
     *PBytesTransferred = static_cast<ULONG>(bytes_read);
+
     return STATUS_SUCCESS;
+}
+
+NTSTATUS NTAPI Ext4FileSystem::OnWrite(FSP_FILE_SYSTEM* FileSystem,
+    PVOID FileContext, PVOID Buffer, UINT64 Offset, ULONG Length,
+    BOOLEAN WriteToEndOfFile, BOOLEAN ConstrainedIo,
+    PULONG PBytesTransferred, FSP_FSCTL_FILE_INFO* FileInfo)
+{
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    auto* ctx = static_cast<Ext4FileContext*>(FileContext);
+    if (!ctx || ctx->is_directory)
+        return STATUS_INVALID_DEVICE_REQUEST;
+
+    std::string path = self->ToExt4Path(ctx->path.c_str());
+
+    // Reopen file for each write (lwext4 seek is unreliable on open handles)
+    ext4_file f;
+    std::memset(&f, 0, sizeof(f));
+
+    int rc = ext4_fopen(&f, path.c_str(), "r+b");
+    if (rc != EOK)
+        return STATUS_UNSUCCESSFUL;
+
+    uint64_t file_size = ext4_fsize(&f);
+    uint64_t write_offset = WriteToEndOfFile ? file_size : Offset;
+    ULONG write_length = Length;
+
+    // ConstrainedIo: cannot write beyond current file size
+    if (ConstrainedIo) {
+        if (write_offset >= file_size) {
+            ext4_fclose(&f);
+            *PBytesTransferred = 0;
+            return STATUS_SUCCESS;
+        }
+        if (write_offset + write_length > file_size)
+            write_length = static_cast<ULONG>(file_size - write_offset);
+    }
+
+    rc = ext4_fseek(&f, write_offset, SEEK_SET);
+    if (rc != EOK) {
+        ext4_fclose(&f);
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    size_t bytes_written = 0;
+    rc = ext4_fwrite(&f, Buffer, write_length, &bytes_written);
+    ext4_fclose(&f);
+
+    if (rc != EOK)
+        return STATUS_UNSUCCESSFUL;
+
+    *PBytesTransferred = static_cast<ULONG>(bytes_written);
+
+    return self->FillFileInfo(path.c_str(), FileInfo);
 }
 
 NTSTATUS NTAPI Ext4FileSystem::OnReadDirectory(FSP_FILE_SYSTEM* FileSystem,
     PVOID FileContext, PWSTR Pattern, PWSTR Marker,
     PVOID Buffer, ULONG Length, PULONG PBytesTransferred)
 {
+
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx || !ctx->is_directory)
         return STATUS_INVALID_DEVICE_REQUEST;
-
-    auto* self = GetSelf(FileSystem);
     std::string dir_path = self->ToExt4Path(ctx->path.c_str());
 
-    // Reopen directory to iterate from the beginning
-    ext4_dir d;
-    std::memset(&d, 0, sizeof(d));
+    // Close and reopen directory to rewind the iterator.
+    // IMPORTANT: never open a second handle to the same directory —
+    // lwext4 corrupts internal state when two handles share the same inode.
+    ext4_dir_close(&ctx->dir);
+    std::memset(&ctx->dir, 0, sizeof(ctx->dir));
 
-    int rc = ext4_dir_open(&d, dir_path.c_str());
+    int rc = ext4_dir_open(&ctx->dir, dir_path.c_str());
     if (rc != EOK)
         return STATUS_UNSUCCESSFUL;
 
     bool past_marker = (Marker == nullptr);
     const ext4_direntry* entry;
 
-    while ((entry = ext4_dir_entry_next(&d)) != nullptr) {
+    while ((entry = ext4_dir_entry_next(&ctx->dir)) != nullptr) {
         // Skip . and ..
         if (entry->name_length == 1 && entry->name[0] == '.')
             continue;
@@ -465,10 +650,9 @@ NTSTATUS NTAPI Ext4FileSystem::OnReadDirectory(FSP_FILE_SYSTEM* FileSystem,
             break;
     }
 
-    ext4_dir_close(&d);
-
     // Signal end of directory
     FspFileSystemAddDirInfo(nullptr, Buffer, Length, PBytesTransferred);
+
 
     return STATUS_SUCCESS;
 }
@@ -476,17 +660,219 @@ NTSTATUS NTAPI Ext4FileSystem::OnReadDirectory(FSP_FILE_SYSTEM* FileSystem,
 NTSTATUS NTAPI Ext4FileSystem::OnGetFileInfo(FSP_FILE_SYSTEM* FileSystem,
     PVOID FileContext, FSP_FSCTL_FILE_INFO* FileInfo)
 {
+
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    auto* ctx = static_cast<Ext4FileContext*>(FileContext);
+    if (!ctx) return STATUS_INVALID_HANDLE;
+    std::string path = self->ToExt4Path(ctx->path.c_str());
+
+    NTSTATUS r = self->FillFileInfo(path.c_str(), FileInfo);
+
+    return r;
+}
+
+NTSTATUS NTAPI Ext4FileSystem::OnSetBasicInfo(FSP_FILE_SYSTEM* FileSystem,
+    PVOID FileContext, UINT32 FileAttributes,
+    UINT64 CreationTime, UINT64 LastAccessTime, UINT64 LastWriteTime,
+    UINT64 ChangeTime, FSP_FSCTL_FILE_INFO* FileInfo)
+{
+
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+
     auto* ctx = static_cast<Ext4FileContext*>(FileContext);
     if (!ctx) return STATUS_INVALID_HANDLE;
 
-    auto* self = GetSelf(FileSystem);
     std::string path = self->ToExt4Path(ctx->path.c_str());
 
+    if (self->read_only_)
+        return self->FillFileInfo(path.c_str(), FileInfo);
+
+    // Windows-to-POSIX epoch difference
+    const uint64_t EPOCH_DIFF = 116444736000000000ULL;
+
+    // Convert FILETIME to POSIX seconds
+    if (LastAccessTime != 0) {
+        uint32_t atime = static_cast<uint32_t>((LastAccessTime - EPOCH_DIFF) / 10000000ULL);
+        ext4_atime_set(path.c_str(), atime);
+    }
+
+    if (LastWriteTime != 0) {
+        uint32_t mtime = static_cast<uint32_t>((LastWriteTime - EPOCH_DIFF) / 10000000ULL);
+        ext4_mtime_set(path.c_str(), mtime);
+    }
+
+    if (CreationTime != 0) {
+        uint32_t ctime = static_cast<uint32_t>((CreationTime - EPOCH_DIFF) / 10000000ULL);
+        ext4_ctime_set(path.c_str(), ctime);
+    }
+
+    NTSTATUS r2 = self->FillFileInfo(path.c_str(), FileInfo);
+
+    return r2;
+}
+
+NTSTATUS NTAPI Ext4FileSystem::OnSetFileSize(FSP_FILE_SYSTEM* FileSystem,
+    PVOID FileContext, UINT64 NewSize, BOOLEAN SetAllocationSize,
+    FSP_FSCTL_FILE_INFO* FileInfo)
+{
+
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+
+    auto* ctx = static_cast<Ext4FileContext*>(FileContext);
+    if (!ctx || ctx->is_directory)
+        return STATUS_INVALID_DEVICE_REQUEST;
+
+    if (SetAllocationSize)
+        return self->FillFileInfo(
+            self->ToExt4Path(ctx->path.c_str()).c_str(), FileInfo);
+    std::string path = self->ToExt4Path(ctx->path.c_str());
+
+    ext4_file f;
+    std::memset(&f, 0, sizeof(f));
+
+    int rc = ext4_fopen(&f, path.c_str(), "r+b");
+    if (rc != EOK)
+        return STATUS_UNSUCCESSFUL;
+
+    rc = ext4_ftruncate(&f, NewSize);
+    ext4_fclose(&f);
+
+    if (rc != EOK)
+        return STATUS_UNSUCCESSFUL;
+
     return self->FillFileInfo(path.c_str(), FileInfo);
+}
+
+NTSTATUS NTAPI Ext4FileSystem::OnCanDelete(FSP_FILE_SYSTEM* FileSystem,
+    PVOID FileContext, PWSTR FileName)
+{
+    // Check if a file/directory can be deleted (directories must be empty).
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    auto* ctx = static_cast<Ext4FileContext*>(FileContext);
+    if (!ctx) return STATUS_INVALID_HANDLE;
+
+    if (ctx->is_directory) {
+        std::string path = self->ToExt4Path(ctx->path.c_str());
+
+        // Check if directory is empty
+        ext4_dir d;
+        std::memset(&d, 0, sizeof(d));
+
+        int rc = ext4_dir_open(&d, path.c_str());
+        if (rc != EOK)
+            return STATUS_UNSUCCESSFUL;
+
+        const ext4_direntry* entry;
+        bool has_entries = false;
+
+        while ((entry = ext4_dir_entry_next(&d)) != nullptr) {
+            // Skip . and ..
+            if (entry->name_length == 1 && entry->name[0] == '.')
+                continue;
+            if (entry->name_length == 2 && entry->name[0] == '.' && entry->name[1] == '.')
+                continue;
+
+            has_entries = true;
+            break;
+        }
+
+        ext4_dir_close(&d);
+
+        if (has_entries)
+            return STATUS_DIRECTORY_NOT_EMPTY;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS NTAPI Ext4FileSystem::OnRename(FSP_FILE_SYSTEM* FileSystem,
+    PVOID FileContext, PWSTR FileName, PWSTR NewFileName,
+    BOOLEAN ReplaceIfExists)
+{
+    // Rename or move a file/directory.
+    //
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::string old_path = self->ToExt4Path(FileName);
+    std::string new_path = self->ToExt4Path(NewFileName);
+
+    // Check if destination already exists
+    if (!ReplaceIfExists) {
+        ext4_file f;
+        std::memset(&f, 0, sizeof(f));
+
+        if (ext4_fopen(&f, new_path.c_str(), "rb") == EOK) {
+            ext4_fclose(&f);
+            return STATUS_OBJECT_NAME_COLLISION;
+        }
+
+        ext4_dir d;
+        std::memset(&d, 0, sizeof(d));
+
+        if (ext4_dir_open(&d, new_path.c_str()) == EOK) {
+            ext4_dir_close(&d);
+            return STATUS_OBJECT_NAME_COLLISION;
+        }
+    }
+
+    int rc = ext4_frename(old_path.c_str(), new_path.c_str());
+    if (rc != EOK)
+        return STATUS_UNSUCCESSFUL;
+
+    // Update the stored path in the context
+    auto* ctx = static_cast<Ext4FileContext*>(FileContext);
+    if (ctx)
+        ctx->path.assign(NewFileName);
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS NTAPI Ext4FileSystem::OnFlush(FSP_FILE_SYSTEM* FileSystem,
+    PVOID FileContext, FSP_FSCTL_FILE_INFO* FileInfo)
+{
+
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    if (!self->read_only_)
+        ext4_cache_flush(MOUNT_POINT);
+
+    if (FileContext && FileInfo) {
+        auto* ctx = static_cast<Ext4FileContext*>(FileContext);
+        std::string path = self->ToExt4Path(ctx->path.c_str());
+        return self->FillFileInfo(path.c_str(), FileInfo);
+    }
+
+
+    return STATUS_SUCCESS;
 }
 
 VOID NTAPI Ext4FileSystem::OnCleanup(FSP_FILE_SYSTEM* FileSystem,
     PVOID FileContext, PWSTR FileName, ULONG Flags)
 {
-    // Nothing to clean up for read-only filesystem
+
+    if (!FileContext || !FileName)
+        return;
+
+    auto* self = GetSelf(FileSystem);
+    std::lock_guard<std::mutex> lock(self->ext4_mutex_);
+    std::string path = self->ToExt4Path(FileName);
+    auto* ctx = static_cast<Ext4FileContext*>(FileContext);
+
+    // If marked for deletion, close the handle and remove from disk
+    if (Flags & FspCleanupDelete) {
+        if (ctx->is_directory) {
+            ext4_dir_close(&ctx->dir);
+            ext4_dir_rm(path.c_str());
+            std::memset(&ctx->dir, 0, sizeof(ctx->dir));
+        } else {
+            ext4_fclose(&ctx->file);
+            ext4_fremove(path.c_str());
+            std::memset(&ctx->file, 0, sizeof(ctx->file));
+        }
+    }
+
 }

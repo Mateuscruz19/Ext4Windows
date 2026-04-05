@@ -10,6 +10,8 @@ extern "C" {
 }
 
 #include <string>
+#include <mutex>
+#include <set>
 
 // Context stored per open file/directory handle.
 struct Ext4FileContext {
@@ -66,6 +68,30 @@ private:
     static NTSTATUS NTAPI OnGetFileInfo(FSP_FILE_SYSTEM* FileSystem,
         PVOID FileContext, FSP_FSCTL_FILE_INFO* FileInfo);
 
+    static NTSTATUS NTAPI OnWrite(FSP_FILE_SYSTEM* FileSystem,
+        PVOID FileContext, PVOID Buffer, UINT64 Offset, ULONG Length,
+        BOOLEAN WriteToEndOfFile, BOOLEAN ConstrainedIo,
+        PULONG PBytesTransferred, FSP_FSCTL_FILE_INFO* FileInfo);
+
+    static NTSTATUS NTAPI OnSetBasicInfo(FSP_FILE_SYSTEM* FileSystem,
+        PVOID FileContext, UINT32 FileAttributes,
+        UINT64 CreationTime, UINT64 LastAccessTime, UINT64 LastWriteTime,
+        UINT64 ChangeTime, FSP_FSCTL_FILE_INFO* FileInfo);
+
+    static NTSTATUS NTAPI OnSetFileSize(FSP_FILE_SYSTEM* FileSystem,
+        PVOID FileContext, UINT64 NewSize, BOOLEAN SetAllocationSize,
+        FSP_FSCTL_FILE_INFO* FileInfo);
+
+    static NTSTATUS NTAPI OnCanDelete(FSP_FILE_SYSTEM* FileSystem,
+        PVOID FileContext, PWSTR FileName);
+
+    static NTSTATUS NTAPI OnRename(FSP_FILE_SYSTEM* FileSystem,
+        PVOID FileContext, PWSTR FileName, PWSTR NewFileName,
+        BOOLEAN ReplaceIfExists);
+
+    static NTSTATUS NTAPI OnFlush(FSP_FILE_SYSTEM* FileSystem,
+        PVOID FileContext, FSP_FSCTL_FILE_INFO* FileInfo);
+
     static VOID NTAPI OnCleanup(FSP_FILE_SYSTEM* FileSystem,
         PVOID FileContext, PWSTR FileName, ULONG Flags);
 
@@ -79,6 +105,8 @@ private:
     FSP_FILE_SYSTEM_INTERFACE iface_ = {};
     struct ext4_blockdev* bdev_ = nullptr;
     bool read_only_ = true;
+    std::mutex ext4_mutex_;
+    std::set<void*> valid_contexts_;  // Track open contexts to detect double-close
 
     static const char* MOUNT_POINT;
 };

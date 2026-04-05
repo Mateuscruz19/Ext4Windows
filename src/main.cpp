@@ -60,11 +60,15 @@ static void print_usage()
 {
     print_banner();
     printf("  USAGE:\n");
-    printf("    ext4windows <image-file> [drive-letter]\n");
+    printf("    ext4windows <image-file> [drive-letter] [--rw]\n");
     printf("\n");
     printf("  EXAMPLES:\n");
-    printf("    ext4windows C:\\linux.img Z:     Mount on Z:\n");
-    printf("    ext4windows C:\\linux.img        Auto-pick drive letter\n");
+    printf("    ext4windows C:\\linux.img Z:         Mount read-only on Z:\n");
+    printf("    ext4windows C:\\linux.img Z: --rw    Mount read-write on Z:\n");
+    printf("    ext4windows C:\\linux.img            Auto-pick drive letter\n");
+    printf("\n");
+    printf("  OPTIONS:\n");
+    printf("    --rw    Mount with read-write access (default: read-only)\n");
     printf("\n");
     printf("  Run without arguments for interactive mode.\n");
     printf("\n");
@@ -268,6 +272,31 @@ static bool ask_drive_letter(wchar_t* out, int max_chars)
     return true;
 }
 
+// Ask whether to mount read-only or read-write.
+static bool ask_read_write()
+{
+    printf("\n");
+    printf("  %s\n", tr(
+        "ACCESS MODE",
+        "MODO DE ACESSO"));
+    printf("  %s\n", tr(
+        "  [1] Read-only  (safe, cannot modify files)",
+        "  [1] Somente leitura  (seguro, nao modifica arquivos)"));
+    printf("  %s\n", tr(
+        "  [2] Read-write (can create, edit and delete files)",
+        "  [2] Leitura e escrita (pode criar, editar e deletar arquivos)"));
+    printf("\n");
+    printf("  > ");
+    fflush(stdout);
+
+    wchar_t input[64] = {};
+    if (!read_line(input, 64))
+        return true; // default: read-only
+    if (input[0] == L'2')
+        return false; // read-write
+    return true; // read-only
+}
+
 // Wait for user to press Enter (keeps the window open after errors).
 static void pause_before_exit()
 {
@@ -278,7 +307,7 @@ static void pause_before_exit()
 
 // Mount and run until Ctrl+C or the stop event is signaled.
 static int run(const wchar_t* image_path, const wchar_t* mount_point,
-               bool interactive)
+               bool interactive, bool read_only)
 {
     // Convert image path to UTF-8 for lwext4
     char image_path_utf8[512] = {};
@@ -321,7 +350,7 @@ static int run(const wchar_t* image_path, const wchar_t* mount_point,
 
     // Mount the ext4 filesystem via WinFsp
     Ext4FileSystem fs;
-    NTSTATUS status = fs.Mount(bdev, mount_point, true /* read-only */);
+    NTSTATUS status = fs.Mount(bdev, mount_point, read_only);
     if (!NT_SUCCESS(status)) {
         printf("\n\n");
         if (status == 0xC0000035) {
@@ -359,7 +388,9 @@ static int run(const wchar_t* image_path, const wchar_t* mount_point,
     wprintf(L"  %s %s\\ (%s)\n",
         tr(L"Mounted at", L"Montado em"),
         mount_point,
-        tr(L"read-only", L"somente leitura"));
+        read_only
+            ? tr(L"read-only", L"somente leitura")
+            : tr(L"read-write", L"leitura e escrita"));
     printf("\n");
 
     if (interactive) {
@@ -431,8 +462,16 @@ int wmain(int argc, wchar_t* argv[])
             swprintf(mount_buf, 8, L"%c:", letter);
         }
 
+        // CLI: --rw flag para leitura+escrita, senão read-only
+        bool cli_read_only = true;
+        for (int i = 1; i < argc; i++) {
+            if (wcscmp(argv[i], L"--rw") == 0) {
+                cli_read_only = false;
+            }
+        }
+
         print_banner();
-        return run(image_path, mount_buf, false);
+        return run(image_path, mount_buf, false, cli_read_only);
     }
 
     // Interactive mode: no arguments
@@ -455,5 +494,7 @@ int wmain(int argc, wchar_t* argv[])
         return 1;
     }
 
-    return run(image_path, mount_point, true);
+    bool read_only = ask_read_write();
+
+    return run(image_path, mount_point, true, read_only);
 }
