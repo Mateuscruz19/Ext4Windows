@@ -330,20 +330,16 @@ static void print_banner()
 {
     printf("\n");
     set_color(CLR_BLUE);
-    printf("                                                            ,,                    ,,\n");
-    printf("  `7MM\"\"\"YMM               mm         `7MMF'     A     `7MF'db                  `7MM\n");
-    printf("    MM    `7               MM           `MA     ,MA     ,V                        MM\n");
+    printf("  ########  ##     ## ########  ##        ##  ##  ##  ####  ##    ##  ########    #######   ##      ##   ######\n");
+    printf("  ##         ##   ##     ##     ##    ##  ##  ##  ## ##  ## ##    ##  ##     ##  ##     ##  ##  ##  ##  ##    ##\n");
     set_color(CLR_ORANGE);
-    printf("    MM   d    `7M'   `MF'mmMMmm      ,AM VM:   ,VVM:   ,V `7MM  `7MMpMMMb.   ,M\"\"bMM  ,pW\"Wq.`7M'    ,A    `MF',pP\"Ybd\n");
-    printf("    MMmmMM      `VA ,V'    MM       AVMM  MM.  M' MM.  M'   MM    MM    MM ,AP    MM 6W'   `Wb VA   ,VAA   ,V  8I   `\"\n");
+    printf("  ##          ## ##      ##     ##    ##  ##  ##  ##     ## ##    ##  ##     ##  ##     ##  ##  ##  ##  ##\n");
+    printf("  ######       ###       ##     ##########    ######    ##  ##  ##   ##     ##  ##     ##  ##  ##  ##   ######\n");
     set_color(CLR_BLUE);
-    printf("    MM   Y  ,     XMX      MM     ,W' MM  `MM A'  `MM A'    MM    MM    MM 8MI    MM 8M     M8  VA ,V  VA ,V   `YMMMa.\n");
-    printf("    MM     ,M   ,V' VA.    MM   ,W'   MM   :MM;    :MM;     MM    MM    MM `Mb    MM YA.   ,A9   VVV    VVV    L.   I8\n");
+    printf("  ##          ## ##      ##            ##        ##    ##    ####    ##     ##  ##     ##  ##  ##  ##        ##\n");
+    printf("  ##         ##   ##     ##            ##        ##   ##      ##     ##     ##  ##     ##  ##  ##  ##  ##    ##\n");
     set_color(CLR_ORANGE);
-    printf("  .JMMmmmmMMM .AM.   .MA.  `MbmoAmmmmmMMmm  VF      VF    .JMML..JMML  JMML.`Wbmd\"MML.`Ybmd9'     W      W     M9mmmP'\n");
-    set_color(CLR_BLUE);
-    printf("                                      MM\n");
-    printf("                                      MM\n");
+    printf("  ########  ##     ##    ##            ##        ##  ######   ##     ########    #######    ###  ###    ######\n");
     reset_color();
     printf("\n");
     set_color(CLR_WHITE);
