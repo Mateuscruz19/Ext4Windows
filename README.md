@@ -24,14 +24,14 @@
 </p>
 
 <p align="center">
-  <sub>🌍 English · Português · Español · Deutsch · Français · 中文 · 日本語 · Русский</sub>
+  <sub>🌍 **English** · <a href="README.pt-BR.md">Português</a> · <a href="README.es.md">Español</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.zh.md">中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a></sub>
 </p>
 
 <p align="center">
-  <a href="#-quick-start"><kbd> <br> Quick Start <br> </kbd></a>&nbsp;&nbsp;
-  <a href="#-installation"><kbd> <br> Installation <br> </kbd></a>&nbsp;&nbsp;
-  <a href="#-building-from-source"><kbd> <br> Build from Source <br> </kbd></a>&nbsp;&nbsp;
-  <a href="https://github.com/mateucruz/Ext4Windows/issues"><kbd> <br> Report Bug <br> </kbd></a>
+  <a href="#quick-start"><kbd> <br> Quick Start <br> </kbd></a>&nbsp;&nbsp;
+  <a href="#installation"><kbd> <br> Installation <br> </kbd></a>&nbsp;&nbsp;
+  <a href="#building-from-source"><kbd> <br> Build from Source <br> </kbd></a>&nbsp;&nbsp;
+  <a href="https://github.com/Mateuscruz19/Ext4Windows/issues"><kbd> <br> Report Bug <br> </kbd></a>
 </p>
 
 <br>
@@ -350,7 +350,7 @@ ext4windows mount test.img
 ### Clone
 
 ```bash
-git clone --recursive https://github.com/mateucruz/Ext4Windows.git
+git clone --recursive https://github.com/Mateuscruz19/Ext4Windows.git
 cd Ext4Windows
 ```
 
