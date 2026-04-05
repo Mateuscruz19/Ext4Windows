@@ -17,6 +17,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Mateuscruz19/Ext4Windows/actions/workflows/build.yml"><img src="https://github.com/Mateuscruz19/Ext4Windows/actions/workflows/build.yml/badge.svg" alt="Build & Test"></a>
+  <a href="https://github.com/Mateuscruz19/Ext4Windows/releases/latest"><img src="https://img.shields.io/github/v/release/Mateuscruz19/Ext4Windows?style=flat-square&color=brightgreen" alt="Latest Release"></a>
   <img src="https://img.shields.io/badge/ASan-PASS-brightgreen?style=flat-square&logo=llvm&logoColor=white" alt="ASan PASS">
   <img src="https://img.shields.io/badge/MSVC%20%2Fanalyze-PASS-brightgreen?style=flat-square&logo=visualstudio&logoColor=white" alt="MSVC /analyze PASS">
   <img src="https://img.shields.io/badge/CppCheck-PASS-brightgreen?style=flat-square&logo=c&logoColor=white" alt="CppCheck PASS">
@@ -323,7 +325,12 @@ The server creates a **system tray icon** (notification area) using pure Win32 A
 
 ### Download
 
-> Releases coming soon. For now, [build from source](#-building-from-source).
+Download the latest version from the [**Releases page**](https://github.com/Mateuscruz19/Ext4Windows/releases/latest):
+
+| Download | Description |
+|:---------|:------------|
+| **Ext4Windows-setup.exe** | Installer — installs WinFsp automatically if needed |
+| **Ext4Windows-portable.zip** | Portable — extract and run (requires WinFsp installed) |
 
 ### Verify it works
 
