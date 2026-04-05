@@ -483,7 +483,7 @@ Ext4Windows/
 
 ### Planned
 
-- [ ] GUI settings panel
+- [x] Settings panel (terminal-based, persisted to config file)
 
 <br>
 

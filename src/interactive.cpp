@@ -73,6 +73,106 @@ static void init_console()
 // ═══════════════════════════════════════════════════════════
 
 static int g_lang = 0;
+static int g_default_mode = 0;  // 0 = read-only, 1 = read-write
+
+// ── Config file (%APPDATA%\Ext4Windows\config.ini) ──────
+// Simple key=value file for persisting user preferences.
+
+static std::string get_config_path()
+{
+    char* appdata = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&appdata, &len, "APPDATA") != 0 || !appdata)
+        return "";
+    std::string path(appdata);
+    free(appdata);
+    path += "\\Ext4Windows";
+    CreateDirectoryA(path.c_str(), nullptr);
+    path += "\\config.ini";
+    return path;
+}
+
+static void load_config()
+{
+    std::string path = get_config_path();
+    if (path.empty()) return;
+
+    FILE* f = fopen(path.c_str(), "r");
+    if (!f) return;
+
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        char key[64] = {}, val[64] = {};
+        if (sscanf(line, "%63[^=]=%63s", key, val) == 2) {
+            if (strcmp(key, "language") == 0)
+                g_lang = atoi(val);
+            else if (strcmp(key, "default_mode") == 0)
+                g_default_mode = atoi(val);
+            else if (strcmp(key, "debug") == 0)
+                g_debug = atoi(val);
+        }
+    }
+    fclose(f);
+
+    // Validate ranges
+    if (g_lang < 0 || g_lang > 7) g_lang = 0;
+    if (g_default_mode < 0 || g_default_mode > 1) g_default_mode = 0;
+}
+
+static void save_config()
+{
+    std::string path = get_config_path();
+    if (path.empty()) return;
+
+    FILE* f = fopen(path.c_str(), "w");
+    if (!f) return;
+
+    fprintf(f, "language=%d\n", g_lang);
+    fprintf(f, "default_mode=%d\n", g_default_mode);
+    fprintf(f, "debug=%d\n", g_debug ? 1 : 0);
+    fclose(f);
+}
+
+// ── Auto-start registry helpers (same key as tray_icon.cpp) ──
+
+static const wchar_t* AUTOSTART_RUN_KEY =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+static const wchar_t* AUTOSTART_RUN_VALUE = L"Ext4Windows";
+
+static bool is_autostart_enabled()
+{
+    DWORD size = 0;
+    LONG result = RegGetValueW(
+        HKEY_CURRENT_USER, AUTOSTART_RUN_KEY, AUTOSTART_RUN_VALUE,
+        RRF_RT_REG_SZ, nullptr, nullptr, &size);
+    return result == ERROR_SUCCESS;
+}
+
+static void toggle_autostart()
+{
+    if (is_autostart_enabled()) {
+        HKEY key;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, AUTOSTART_RUN_KEY, 0,
+                          KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
+            RegDeleteValueW(key, AUTOSTART_RUN_VALUE);
+            RegCloseKey(key);
+        }
+    } else {
+        wchar_t exe_path[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+        std::wstring cmd = L"\"";
+        cmd += exe_path;
+        cmd += L"\" --server";
+        HKEY key;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, AUTOSTART_RUN_KEY, 0,
+                          KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
+            RegSetValueExW(key, AUTOSTART_RUN_VALUE, 0, REG_SZ,
+                reinterpret_cast<const BYTE*>(cmd.c_str()),
+                static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t)));
+            RegCloseKey(key);
+        }
+    }
+}
 
 static const char* tr(const char* en, const char* pt,
                       const char* es, const char* de,
@@ -332,11 +432,18 @@ static void print_main_menu()
         "\xd0\xa0\xd0\xb0\xd0\xb7\xd0\xbc\xd0\xbe\xd0\xbd\xd1\x82\xd0\xb8\xd1\x80\xd0\xbe\xd0\xb2\xd0\xb0\xd1\x82\xd1\x8c \xd0\xb4\xd0\xb8\xd1\x81\xd0\xba"));
 
     set_color(CLR_ORANGE); printf("    [5] "); set_color(CLR_WHITE);
+    printf("%s\n", tr("Settings", "Configuracoes", "Configuracion",
+        "Einstellungen", "Parametres",
+        "\xe8\xae\xbe\xe7\xbd\xae",
+        "\xe8\xa8\xad\xe5\xae\x9a",
+        "\xd0\x9d\xd0\xb0\xd1\x81\xd1\x82\xd1\x80\xd0\xbe\xd0\xb9\xd0\xba\xd0\xb8"));
+
+    set_color(CLR_ORANGE); printf("    [6] "); set_color(CLR_WHITE);
     printf("%s\n", tr("Help", "Ajuda", "Ayuda", "Hilfe", "Aide",
         "\xe5\xb8\xae\xe5\x8a\xa9", "\xe3\x83\x98\xe3\x83\xab\xe3\x83\x97",
         "\xd0\x9f\xd0\xbe\xd0\xbc\xd0\xbe\xd1\x89\xd1\x8c"));
 
-    set_color(CLR_ORANGE); printf("    [6] "); set_color(CLR_WHITE);
+    set_color(CLR_ORANGE); printf("    [7] "); set_color(CLR_WHITE);
     printf("%s\n", tr("Quit", "Sair", "Salir", "Beenden", "Quitter",
         "\xe9\x80\x80\xe5\x87\xba", "\xe7\xb5\x82\xe4\xba\x86",
         "\xd0\x92\xd1\x8b\xd1\x85\xd0\xbe\xd0\xb4"));
@@ -523,11 +630,15 @@ static void do_mount_image()
         "\xe8\xaa\xad\xe3\x81\xbf\xe6\x9b\xb8\xe3\x81\x8d  (\xe4\xbd\x9c\xe6\x88\x90\xe3\x80\x81\xe7\xb7\xa8\xe9\x9b\x86\xe3\x80\x81\xe5\x89\x8a\xe9\x99\xa4\xe5\x8f\xaf\xe8\x83\xbd)",
         "\xd0\xa7\xd1\x82\xd0\xb5\xd0\xbd\xd0\xb8\xd0\xb5/\xd0\xb7\xd0\xb0\xd0\xbf\xd0\xb8\xd1\x81\xd1\x8c (\xd1\x81\xd0\xbe\xd0\xb7\xd0\xb4\xd0\xb0\xd0\xb2\xd0\xb0\xd1\x82\xd1\x8c, \xd1\x80\xd0\xb5\xd0\xb4\xd0\xb0\xd0\xba\xd1\x82\xd0\xb8\xd1\x80\xd0\xbe\xd0\xb2\xd0\xb0\xd1\x82\xd1\x8c, \xd1\x83\xd0\xb4\xd0\xb0\xd0\xbb\xd1\x8f\xd1\x82\xd1\x8c)"));
     reset_color();
+    set_color(CLR_GRAY);
+    printf("  [Enter = %s]\n", g_default_mode ? "2" : "1");
+    reset_color();
     print_prompt();
 
     char rw_input[64] = {};
     read_line(rw_input, sizeof(rw_input));
-    bool read_write = (rw_input[0] == '2');
+    bool read_write = (rw_input[0] == '\0')
+        ? (g_default_mode == 1) : (rw_input[0] == '2');
 
     printf("\n");
     set_color(CLR_GRAY);
@@ -868,11 +979,15 @@ static void do_scan_partitions()
         "\xe8\xaa\xad\xe3\x81\xbf\xe6\x9b\xb8\xe3\x81\x8d",
         "\xd0\xa7\xd1\x82\xd0\xb5\xd0\xbd\xd0\xb8\xd0\xb5/\xd0\xb7\xd0\xb0\xd0\xbf\xd0\xb8\xd1\x81\xd1\x8c"));
     reset_color();
+    set_color(CLR_GRAY);
+    printf("  [Enter = %s]\n", g_default_mode ? "2" : "1");
+    reset_color();
     print_prompt();
 
     char rw_input[64] = {};
     read_line(rw_input, sizeof(rw_input));
-    bool read_write = (rw_input[0] == '2');
+    bool read_write = (rw_input[0] == '\0')
+        ? (g_default_mode == 1) : (rw_input[0] == '2');
     bool read_only = !read_write;
 
     // Mount via server pipe (MOUNT_PARTITION command) — the server keeps the
@@ -1161,6 +1276,164 @@ static void do_help()
 }
 
 // ═══════════════════════════════════════════════════════════
+// Settings
+// ═══════════════════════════════════════════════════════════
+
+static void do_settings()
+{
+    const char* lang_names[] = {
+        "English", "Portugues", "Espanol", "Deutsch",
+        "Francais",
+        "\xe4\xb8\xad\xe6\x96\x87",
+        "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e",
+        "\xd0\xa0\xd1\x83\xd1\x81\xd1\x81\xd0\xba\xd0\xb8\xd0\xb9"
+    };
+
+    while (true) {
+        printf("\n");
+        print_divider();
+        printf("\n");
+
+        set_color(CLR_WHITE);
+        printf("   %s\n", tr(
+            "SETTINGS", "CONFIGURACOES", "CONFIGURACION",
+            "EINSTELLUNGEN", "PARAMETRES",
+            "\xe8\xae\xbe\xe7\xbd\xae",
+            "\xe8\xa8\xad\xe5\xae\x9a",
+            "\xd0\x9d\xd0\x90\xd0\xa1\xd0\xa2\xd0\xa0\xd0\x9e\xd0\x99\xd0\x9a\xd0\x98"));
+        reset_color();
+        printf("\n");
+
+        // [1] Language
+        set_color(CLR_ORANGE); printf("    [1] "); set_color(CLR_WHITE);
+        printf("%s: ", tr("Language", "Idioma", "Idioma",
+            "Sprache", "Langue",
+            "\xe8\xaf\xad\xe8\xa8\x80", "\xe8\xa8\x80\xe8\xaa\x9e",
+            "\xd0\xaf\xd0\xb7\xd1\x8b\xd0\xba"));
+        set_color(CLR_GREEN);
+        printf("%s\n", lang_names[g_lang]);
+        reset_color();
+
+        // [2] Default mode
+        set_color(CLR_ORANGE); printf("    [2] "); set_color(CLR_WHITE);
+        printf("%s: ", tr("Default mode", "Modo padrao", "Modo predeterminado",
+            "Standardmodus", "Mode par defaut",
+            "\xe9\xbb\x98\xe8\xae\xa4\xe6\xa8\xa1\xe5\xbc\x8f",
+            "\xe3\x83\x87\xe3\x83\x95\xe3\x82\xa9\xe3\x83\xab\xe3\x83\x88\xe3\x83\xa2\xe3\x83\xbc\xe3\x83\x89",
+            "\xd0\xa0\xd0\xb5\xd0\xb6\xd0\xb8\xd0\xbc \xd0\xbf\xd0\xbe \xd1\x83\xd0\xbc\xd0\xbe\xd0\xbb\xd1\x87\xd0\xb0\xd0\xbd\xd0\xb8\xd1\x8e"));
+        set_color(CLR_GREEN);
+        printf("%s\n", g_default_mode
+            ? tr("Read-write", "Leitura e escrita",
+                 "Lectura y escritura", "Lesen/Schreiben",
+                 "Lecture/ecriture",
+                 "\xe8\xaf\xbb\xe5\x86\x99",
+                 "\xe8\xaa\xad\xe3\x81\xbf\xe6\x9b\xb8\xe3\x81\x8d",
+                 "\xd0\xa7\xd1\x82\xd0\xb5\xd0\xbd\xd0\xb8\xd0\xb5/\xd0\xb7\xd0\xb0\xd0\xbf\xd0\xb8\xd1\x81\xd1\x8c")
+            : tr("Read-only", "Somente leitura",
+                 "Solo lectura", "Nur lesen",
+                 "Lecture seule",
+                 "\xe5\x8f\xaa\xe8\xaf\xbb",
+                 "\xe8\xaa\xad\xe3\x81\xbf\xe5\x8f\x96\xe3\x82\x8a\xe5\xb0\x82\xe7\x94\xa8",
+                 "\xd0\xa2\xd0\xbe\xd0\xbb\xd1\x8c\xd0\xba\xd0\xbe \xd1\x87\xd1\x82\xd0\xb5\xd0\xbd\xd0\xb8\xd0\xb5"));
+        reset_color();
+
+        // [3] Auto-start
+        set_color(CLR_ORANGE); printf("    [3] "); set_color(CLR_WHITE);
+        printf("%s: ", tr("Start on login", "Iniciar no login",
+            "Iniciar al login", "Beim Login starten",
+            "Demarrer a la connexion",
+            "\xe7\x99\xbb\xe5\xbd\x95\xe6\x97\xb6\xe5\x90\xaf\xe5\x8a\xa8",
+            "\xe3\x83\xad\xe3\x82\xb0\xe3\x82\xa4\xe3\x83\xb3\xe6\x99\x82\xe3\x81\xab\xe8\xb5\xb7\xe5\x8b\x95",
+            "\xd0\x97\xd0\xb0\xd0\xbf\xd1\x83\xd1\x81\xd0\xba \xd0\xbf\xd1\x80\xd0\xb8 \xd0\xb2\xd1\x85\xd0\xbe\xd0\xb4\xd0\xb5"));
+        set_color(is_autostart_enabled() ? CLR_GREEN : CLR_RED);
+        printf("%s\n", is_autostart_enabled()
+            ? tr("ON", "LIGADO", "ACTIVADO", "AN", "ACTIVE",
+                 "\xe5\xbc\x80", "\xe3\x82\xaa\xe3\x83\xb3",
+                 "\xd0\x92\xd0\x9a\xd0\x9b")
+            : tr("OFF", "DESLIGADO", "DESACTIVADO", "AUS", "DESACTIVE",
+                 "\xe5\x85\xb3", "\xe3\x82\xaa\xe3\x83\x95",
+                 "\xd0\x92\xd0\xab\xd0\x9a\xd0\x9b"));
+        reset_color();
+
+        // [4] Debug
+        set_color(CLR_ORANGE); printf("    [4] "); set_color(CLR_WHITE);
+        printf("Debug: ");
+        set_color(g_debug ? CLR_GREEN : CLR_RED);
+        printf("%s\n", g_debug
+            ? tr("ON", "LIGADO", "ACTIVADO", "AN", "ACTIVE",
+                 "\xe5\xbc\x80", "\xe3\x82\xaa\xe3\x83\xb3",
+                 "\xd0\x92\xd0\x9a\xd0\x9b")
+            : tr("OFF", "DESLIGADO", "DESACTIVADO", "AUS", "DESACTIVE",
+                 "\xe5\x85\xb3", "\xe3\x82\xaa\xe3\x83\x95",
+                 "\xd0\x92\xd0\xab\xd0\x9a\xd0\x9b"));
+        reset_color();
+
+        printf("\n");
+        set_color(CLR_ORANGE); printf("    [0] "); set_color(CLR_WHITE);
+        printf("%s\n", tr("Back", "Voltar", "Volver", "Zuruck", "Retour",
+            "\xe8\xbf\x94\xe5\x9b\x9e", "\xe6\x88\xbb\xe3\x82\x8b",
+            "\xd0\x9d\xd0\xb0\xd0\xb7\xd0\xb0\xd0\xb4"));
+
+        printf("\n");
+        print_divider();
+        printf("\n");
+        print_prompt();
+
+        char input[64] = {};
+        if (!read_line(input, sizeof(input))) return;
+
+        switch (input[0]) {
+            case '1': {
+                // Change language
+                const char* langs[] = {
+                    "English", "Portugues", "Espanol", "Deutsch",
+                    "Francais",
+                    "\xe4\xb8\xad\xe6\x96\x87",
+                    "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e",
+                    "\xd0\xa0\xd1\x83\xd1\x81\xd1\x81\xd0\xba\xd0\xb8\xd0\xb9"
+                };
+                printf("\n");
+                for (int i = 0; i < 8; i++) {
+                    set_color(CLR_ORANGE);
+                    printf("    [%d] ", i + 1);
+                    set_color(g_lang == i ? CLR_GREEN : CLR_WHITE);
+                    printf("%s%s\n", langs[i],
+                           g_lang == i ? " *" : "");
+                }
+                reset_color();
+                print_prompt();
+                char lang_input[64] = {};
+                if (read_line(lang_input, sizeof(lang_input))) {
+                    int choice = atoi(lang_input);
+                    if (choice >= 1 && choice <= 8) {
+                        g_lang = choice - 1;
+                        save_config();
+                    }
+                }
+                break;
+            }
+            case '2':
+                g_default_mode = g_default_mode ? 0 : 1;
+                save_config();
+                break;
+            case '3':
+                toggle_autostart();
+                break;
+            case '4':
+                g_debug = !g_debug;
+                save_config();
+                break;
+            case '0':
+            case 'b':
+            case 'B':
+                return;
+            default:
+                break;
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // Language Selection & Main Loop
 // ═══════════════════════════════════════════════════════════
 
@@ -1204,7 +1477,19 @@ int interactive_main()
     clear_screen();
     print_banner();
 
-    g_lang = ask_language();
+    // Load saved settings (language, default mode, debug).
+    // If a config file exists, skip the language selection screen.
+    load_config();
+    std::string cfg = get_config_path();
+    FILE* cfg_test = fopen(cfg.c_str(), "r");
+    if (cfg_test) {
+        fclose(cfg_test);
+        // Config exists — use saved language
+    } else {
+        g_lang = ask_language();
+        save_config();
+    }
+
     ensure_server();
 
     while (true) {
@@ -1219,8 +1504,9 @@ int interactive_main()
             case '2': do_scan_partitions(); break;
             case '3': do_status(); break;
             case '4': do_unmount(); break;
-            case '5': do_help(); break;
-            case '6':
+            case '5': do_settings(); break;
+            case '6': do_help(); break;
+            case '7':
             case 'q':
             case 'Q': {
                 printf("\n");
