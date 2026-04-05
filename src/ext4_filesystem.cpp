@@ -314,19 +314,25 @@ NTSTATUS Ext4FileSystem::FillFileInfo(const char* path,
     // Difference = 11644473600 seconds
     const uint64_t EPOCH_DIFF = 116444736000000000ULL; // in 100ns units
 
-    uint32_t atime = 0, mtime = 0, ctime = 0;
+    uint32_t atime = 0, mtime = 0, ctime = 0, crtime = 0;
     ext4_atime_get(path, &atime);
     ext4_mtime_get(path, &mtime);
     ext4_ctime_get(path, &ctime);
+    ext4_crtime_get(path, &crtime);  // real creation time (ext4 extended inode)
 
-    uint64_t atime_win = static_cast<uint64_t>(atime) * 10000000ULL + EPOCH_DIFF;
-    uint64_t mtime_win = static_cast<uint64_t>(mtime) * 10000000ULL + EPOCH_DIFF;
-    uint64_t ctime_win = static_cast<uint64_t>(ctime) * 10000000ULL + EPOCH_DIFF;
+    // If crtime is not available (old filesystem), fall back to ctime
+    if (crtime == 0)
+        crtime = ctime;
 
-    FileInfo->CreationTime = ctime_win;
+    uint64_t atime_win  = static_cast<uint64_t>(atime)  * 10000000ULL + EPOCH_DIFF;
+    uint64_t mtime_win  = static_cast<uint64_t>(mtime)  * 10000000ULL + EPOCH_DIFF;
+    uint64_t ctime_win  = static_cast<uint64_t>(ctime)  * 10000000ULL + EPOCH_DIFF;
+    uint64_t crtime_win = static_cast<uint64_t>(crtime) * 10000000ULL + EPOCH_DIFF;
+
+    FileInfo->CreationTime   = crtime_win;  // ext4 crtime → Windows creation time
     FileInfo->LastAccessTime = atime_win;
-    FileInfo->LastWriteTime = mtime_win;
-    FileInfo->ChangeTime = mtime_win;
+    FileInfo->LastWriteTime  = mtime_win;
+    FileInfo->ChangeTime     = ctime_win;   // ext4 ctime → Windows change time
     FileInfo->IndexNumber = 0;
     FileInfo->HardLinks = 1;
     FileInfo->ReparseTag = 0;
@@ -828,7 +834,12 @@ NTSTATUS NTAPI Ext4FileSystem::OnSetBasicInfo(FSP_FILE_SYSTEM* FileSystem,
     }
 
     if (CreationTime != 0) {
-        uint32_t ctime = static_cast<uint32_t>((CreationTime - EPOCH_DIFF) / 10000000ULL);
+        uint32_t crtime = static_cast<uint32_t>((CreationTime - EPOCH_DIFF) / 10000000ULL);
+        ext4_crtime_set(path.c_str(), crtime);  // write to ext4 crtime, not ctime
+    }
+
+    if (ChangeTime != 0) {
+        uint32_t ctime = static_cast<uint32_t>((ChangeTime - EPOCH_DIFF) / 10000000ULL);
         ext4_ctime_set(path.c_str(), ctime);
     }
 
