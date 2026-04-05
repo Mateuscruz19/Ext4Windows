@@ -326,7 +326,7 @@ The server creates a **system tray icon** (notification area) using pure Win32 A
 
 <p align="center">
   <a href="https://github.com/Mateuscruz19/Ext4Windows/releases/latest">
-    <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_Download-Ext4Windows_v1.0.0-F5841F?style=for-the-badge&labelColor=1B1464" alt="Download Ext4Windows" height="50">
+    <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_Download-Ext4Windows-F5841F?style=for-the-badge&labelColor=1B1464" alt="Download Ext4Windows" height="50">
   </a>
 </p>
 

@@ -9,7 +9,7 @@
 ; The installer will be created in the "Output" folder.
 
 #define MyAppName "Ext4Windows"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "Ext4Windows"
 #define MyAppURL "https://github.com/Mateuscruz19/Ext4Windows"
 #define MyAppExeName "ext4windows.exe"

@@ -1620,13 +1620,13 @@ int interactive_main()
             default:
                 set_color(CLR_RED);
                 printf("\n  %s\n", tr(
-                    "Invalid option. Choose 1-6.",
-                    "Opcao invalida. Escolha 1-6.",
-                    "Opcion invalida. Elija 1-6.",
-                    "Ungultige Option. Wahlen Sie 1-6.",
-                    "Option invalide. Choisissez 1-6.",
-                    "\xe6\x97\xa0\xe6\x95\x88\xe9\x80\x89\xe9\xa1\xb9\xe3\x80\x82\xe8\xaf\xb7\xe9\x80\x89\xe6\x8b\xa9 1-6\xe3\x80\x82",
-                    "\xe7\x84\xa1\xe5\x8a\xb9\xe3\x81\xaa\xe3\x82\xaa\xe3\x83\x97\xe3\x82\xb7\xe3\x83\xa7\xe3\x83\xb3\xe3\x80\x82" "1-6\xe3\x82\x92\xe9\x81\xb8\xe6\x8a\x9e\xe3\x80\x82"));
+                    "Invalid option. Choose 1-7.",
+                    "Opcao invalida. Escolha 1-7.",
+                    "Opcion invalida. Elija 1-7.",
+                    "Ungultige Option. Wahlen Sie 1-7.",
+                    "Option invalide. Choisissez 1-7.",
+                    "\xe6\x97\xa0\xe6\x95\x88\xe9\x80\x89\xe9\xa1\xb9\xe3\x80\x82\xe8\xaf\xb7\xe9\x80\x89\xe6\x8b\xa9 1-7\xe3\x80\x82",
+                    "\xe7\x84\xa1\xe5\x8a\xb9\xe3\x81\xaa\xe3\x82\xaa\xe3\x83\x97\xe3\x82\xb7\xe3\x83\xa7\xe3\x83\xb3\xe3\x80\x82" "1-7\xe3\x82\x92\xe9\x81\xb8\xe6\x8a\x9e\xe3\x80\x82"));
                 reset_color();
                 break;
         }
