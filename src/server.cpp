@@ -3,6 +3,7 @@
 #include "tray_icon.hpp"
 #include "blockdev_file.hpp"
 #include "blockdev_partition.hpp"
+#include "partition_scanner.hpp"
 #include "debug_log.hpp"
 
 #include <cstdio>
@@ -95,6 +96,106 @@ std::string MountManager::MountImage(const std::wstring& image_path,
              utf8_path.c_str(), static_cast<char>(drive_letter),
              read_write ? "read-write" : "read-only");
     return msg;
+}
+
+std::string MountManager::MountPartition(const std::wstring& device_path,
+                                          wchar_t drive_letter, bool read_write)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+
+    // Check if drive letter is already in use
+    if (mounts_.count(drive_letter)) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "ERROR Drive %c: is already in use",
+                 static_cast<char>(drive_letter));
+        return msg;
+    }
+
+    // Create block device from raw partition
+    struct ext4_blockdev* bdev = create_partition_blockdev(
+        device_path.c_str(), !read_write);
+    if (!bdev) {
+        // Convert device path to UTF-8 for the error message
+        int len = WideCharToMultiByte(CP_UTF8, 0, device_path.c_str(), -1,
+                                       nullptr, 0, nullptr, nullptr);
+        std::string utf8_path(len - 1, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, device_path.c_str(), -1,
+                             utf8_path.data(), len, nullptr, nullptr);
+        return "ERROR Failed to open partition: " + utf8_path;
+    }
+
+    // Create filesystem and mount
+    auto fs = std::make_unique<Ext4FileSystem>();
+    wchar_t mount_point[4] = { drive_letter, L':', L'\0' };
+    char instance_id = static_cast<char>(drive_letter);
+
+    NTSTATUS status = fs->Mount(bdev, mount_point, !read_write, instance_id);
+    if (!NT_SUCCESS(status)) {
+        destroy_partition_blockdev(bdev);
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "ERROR Mount failed on %c: (status=0x%08lX)",
+                 static_cast<char>(drive_letter), status);
+        return msg;
+    }
+
+    // Store the mount entry
+    auto entry = std::make_unique<MountEntry>();
+    entry->drive_letter = drive_letter;
+    entry->source_path = device_path;
+    entry->read_only = !read_write;
+    entry->bdev = bdev;
+    entry->destroy_fn = destroy_partition_blockdev;
+    entry->fs = std::move(fs);
+
+    mounts_[drive_letter] = std::move(entry);
+    NotifyTray();
+
+    // Convert device path to UTF-8 for the response
+    int len = WideCharToMultiByte(CP_UTF8, 0, device_path.c_str(), -1,
+                                   nullptr, 0, nullptr, nullptr);
+    std::string utf8_path(len - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, device_path.c_str(), -1,
+                         utf8_path.data(), len, nullptr, nullptr);
+
+    char msg[512];
+    snprintf(msg, sizeof(msg), "OK Mounted %s on %c: (%s)",
+             utf8_path.c_str(), static_cast<char>(drive_letter),
+             read_write ? "read-write" : "read-only");
+    return msg;
+}
+
+std::string MountManager::Scan()
+{
+    // Scan for ext4 partitions (requires admin privileges)
+    auto partitions = scan_ext4_partitions();
+
+    if (partitions.empty())
+        return "OK 0 partitions found";
+
+    std::ostringstream oss;
+    oss << "OK " << partitions.size() << " partition(s) found";
+
+    for (size_t i = 0; i < partitions.size(); i++) {
+        auto& p = partitions[i];
+
+        // Convert wide strings to UTF-8
+        int len1 = WideCharToMultiByte(CP_UTF8, 0, p.display_name.c_str(), -1,
+                                        nullptr, 0, nullptr, nullptr);
+        std::string display(len1 - 1, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, p.display_name.c_str(), -1,
+                             display.data(), len1, nullptr, nullptr);
+
+        int len2 = WideCharToMultiByte(CP_UTF8, 0, p.device_path.c_str(), -1,
+                                        nullptr, 0, nullptr, nullptr);
+        std::string devpath(len2 - 1, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, p.device_path.c_str(), -1,
+                             devpath.data(), len2, nullptr, nullptr);
+
+        oss << "\n" << i << "|" << display << "|" << devpath;
+    }
+
+    return oss.str();
 }
 
 std::string MountManager::Unmount(wchar_t drive_letter)
@@ -244,6 +345,39 @@ static std::string dispatch_command(MountManager& manager,
                              wsource.data(), wlen);
 
         return manager.MountImage(wsource, drive_letter, read_write);
+    }
+
+    if (action == "MOUNT_PARTITION") {
+        std::string device_path;
+        std::string drive_str;
+        std::string rw_flag;
+
+        // Read the rest of the line as device_path (may contain spaces)
+        // Format: MOUNT_PARTITION <drive_letter> <RW|RO> <device_path>
+        iss >> drive_str >> rw_flag;
+        std::getline(iss, device_path);
+        // Trim leading space left by getline after >>
+        if (!device_path.empty() && device_path[0] == ' ')
+            device_path = device_path.substr(1);
+
+        if (device_path.empty() || drive_str.empty())
+            return "ERROR Usage: MOUNT_PARTITION <drive_letter> <RW|RO> <device_path>";
+
+        wchar_t drive_letter = static_cast<wchar_t>(drive_str[0]);
+        bool read_write = (rw_flag == "RW");
+
+        // Convert device path to wide string
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, device_path.c_str(), -1,
+                                        nullptr, 0);
+        std::wstring wdevice(wlen - 1, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, device_path.c_str(), -1,
+                             wdevice.data(), wlen);
+
+        return manager.MountPartition(wdevice, drive_letter, read_write);
+    }
+
+    if (action == "SCAN") {
+        return manager.Scan();
     }
 
     if (action == "UNMOUNT") {

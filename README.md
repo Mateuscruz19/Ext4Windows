@@ -468,15 +468,19 @@ Ext4Windows/
 
 ### In Progress
 
-- [ ] Mount raw partitions via client-server (currently scan-only)
+(nothing currently)
+
+### Recently Completed
+
+- [x] Mount raw partitions via client-server (MOUNT_PARTITION + SCAN commands)
+- [x] Linux permission mapping (ext4 mode bits → Windows attributes & ACLs)
+- [x] Auto-start on login (Windows Registry Run key)
+- [x] File timestamps (ext4 crtime/atime/mtime/ctime → Windows creation/access/write/change)
 
 ### Planned
 
 - [ ] Installer / portable release (.zip)
 - [ ] Journaling support for crash safety
-- [x] Linux permission mapping (ext4 mode bits → Windows attributes & ACLs)
-- [x] Auto-start on login (Windows Registry Run key)
-- [ ] File timestamp preservation (ctime/mtime/atime)
 - [ ] Large file support (>4GB files on ext4)
 - [ ] Performance optimization (read-ahead caching)
 - [ ] GUI settings panel

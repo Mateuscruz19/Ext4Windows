@@ -38,6 +38,14 @@ public:
     std::string MountImage(const std::wstring& image_path,
                            wchar_t drive_letter, bool read_write);
 
+    // Mount a raw disk partition on the given drive letter.
+    // device_path is like "\\?\GLOBALROOT\Device\Harddisk1\Partition2".
+    std::string MountPartition(const std::wstring& device_path,
+                               wchar_t drive_letter, bool read_write);
+
+    // Scan for ext4 partitions and return a multi-line response.
+    std::string Scan();
+
     // Unmount the filesystem on the given drive letter.
     std::string Unmount(wchar_t drive_letter);
 

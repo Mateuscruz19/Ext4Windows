@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <sstream>
 #include <vector>
 
 // Check if the server is already running by checking if the pipe exists.
@@ -242,38 +243,127 @@ int client_main(int argc, wchar_t* argv[])
 
     // --- scan ---
     if (subcmd == L"scan") {
-        // Scan requires user interaction (partition selection) and UAC
-        // elevation. We re-launch ourselves in legacy --scan mode which
-        // handles all of this. The user can then mount via "mount" subcommand.
-        wchar_t exe_path[MAX_PATH] = {};
-        GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
-
-        // Build args: --scan [drive] [--rw] [--debug]
-        std::wstring args = L"--scan";
+        // Parse flags
         bool rw = false;
+        std::string drive = "";
         for (int i = 2; i < argc; i++) {
-            if (wcscmp(argv[i], L"--rw") == 0) rw = true;
-            else if (wcscmp(argv[i], L"--debug") == 0) args += L" --debug";
-            else args += std::wstring(L" ") + argv[i];
+            if (wcscmp(argv[i], L"--rw") == 0) {
+                rw = true;
+            } else if (wcslen(argv[i]) >= 1 && wcslen(argv[i]) <= 2
+                       && ((argv[i][0] >= L'A' && argv[i][0] <= L'Z')
+                        || (argv[i][0] >= L'a' && argv[i][0] <= L'z'))) {
+                char c = static_cast<char>(argv[i][0]);
+                if (c >= 'a') c -= 32;
+                drive = std::string(1, c);
+            }
         }
-        if (rw) args += L" --rw";
 
-        // Run in same console (not detached) so user can interact
-        STARTUPINFOW si = {};
-        si.cb = sizeof(si);
-        PROCESS_INFORMATION pi = {};
-
-        std::wstring cmd = std::wstring(L"\"") + exe_path + L"\" " + args;
-        CreateProcessW(nullptr, const_cast<LPWSTR>(cmd.c_str()),
-                        nullptr, nullptr, TRUE, 0,
-                        nullptr, nullptr, &si, &pi);
-
-        if (pi.hProcess) {
-            WaitForSingleObject(pi.hProcess, INFINITE);
-            CloseHandle(pi.hThread);
-            CloseHandle(pi.hProcess);
+        // Send SCAN to server (server has admin privileges for disk access)
+        // Ensure server is running first
+        if (!is_server_running()) {
+            printf("  Starting server...\n");
+            if (!start_server() || !wait_for_server()) {
+                fprintf(stderr, "  Error: could not start server\n");
+                return 1;
+            }
         }
-        return 0;
+
+        // Connect to pipe
+        HANDLE pipe = INVALID_HANDLE_VALUE;
+        for (int attempt = 0; attempt < 10; attempt++) {
+            pipe = CreateFileW(PIPE_NAME, GENERIC_READ | GENERIC_WRITE,
+                               0, nullptr, OPEN_EXISTING, 0, nullptr);
+            if (pipe != INVALID_HANDLE_VALUE) break;
+            if (GetLastError() == ERROR_PIPE_BUSY)
+                WaitNamedPipeW(PIPE_NAME, 2000);
+            else break;
+        }
+        if (pipe == INVALID_HANDLE_VALUE) {
+            fprintf(stderr, "  Error: could not connect to server\n");
+            return 1;
+        }
+        DWORD mode = PIPE_READMODE_MESSAGE;
+        SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr);
+
+        // Send SCAN command
+        pipe_send(pipe, "SCAN");
+        std::string response = pipe_recv(pipe);
+        CloseHandle(pipe);
+
+        if (response.empty() || response.substr(0, 5) == "ERROR") {
+            fprintf(stderr, "  %s\n", response.empty()
+                    ? "Error: no response from server" : response.c_str());
+            return 1;
+        }
+
+        // Parse response: "OK N partition(s) found\n0|display|devpath\n..."
+        std::istringstream iss(response);
+        std::string header;
+        std::getline(iss, header);
+
+        struct ScanResult {
+            std::string display;
+            std::string device_path;
+        };
+        std::vector<ScanResult> results;
+
+        std::string line;
+        while (std::getline(iss, line)) {
+            if (line.empty()) continue;
+            // Format: index|display_name|device_path
+            size_t sep1 = line.find('|');
+            size_t sep2 = line.find('|', sep1 + 1);
+            if (sep1 == std::string::npos || sep2 == std::string::npos) continue;
+            ScanResult r;
+            r.display = line.substr(sep1 + 1, sep2 - sep1 - 1);
+            r.device_path = line.substr(sep2 + 1);
+            results.push_back(r);
+        }
+
+        if (results.empty()) {
+            printf("  No ext4 partitions found.\n");
+            printf("  Make sure your Linux disk is connected and you're running as admin.\n");
+            return 0;
+        }
+
+        // Display partitions
+        printf("\n  ext4 partitions found:\n\n");
+        for (size_t i = 0; i < results.size(); i++) {
+            printf("    [%zu] %s\n", i + 1, results[i].display.c_str());
+        }
+        printf("\n  Select partition (1-%zu, or 0 to cancel): ",
+               results.size());
+
+        char input[16] = {};
+        if (!fgets(input, sizeof(input), stdin)) return 1;
+        int choice = atoi(input);
+        if (choice < 1 || choice > static_cast<int>(results.size())) {
+            printf("  Cancelled.\n");
+            return 0;
+        }
+
+        auto& selected = results[choice - 1];
+
+        // Auto-select drive letter if not specified
+        if (drive.empty()) {
+            DWORD used = GetLogicalDrives();
+            for (char letter = 'Z'; letter >= 'D'; letter--) {
+                int bit = letter - 'A';
+                if (!(used & (1 << bit))) {
+                    drive = std::string(1, letter);
+                    break;
+                }
+            }
+            if (drive.empty()) {
+                fprintf(stderr, "  Error: no free drive letter\n");
+                return 1;
+            }
+        }
+
+        // Send MOUNT_PARTITION command
+        std::string cmd = "MOUNT_PARTITION " + drive + " "
+                        + (rw ? "RW" : "RO") + " " + selected.device_path;
+        return send_and_print(cmd);
     }
 
     fprintf(stderr, "  Unknown subcommand: %ls\n", subcmd.c_str());

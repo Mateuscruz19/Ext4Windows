@@ -13,6 +13,7 @@ static const DWORD PIPE_BUFFER_SIZE = 4096;
 // --- Command format (client -> server) ---
 // Each command is a single line of text:
 //   MOUNT <source_path> <drive_letter> [RW]
+//   MOUNT_PARTITION <drive_letter> <RW|RO> <device_path>
 //   UNMOUNT <drive_letter>
 //   STATUS
 //   SCAN
