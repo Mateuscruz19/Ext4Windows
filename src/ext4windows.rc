@@ -26,3 +26,12 @@
 // Icon resource: ID 1 = the main application icon
 #define IDI_APPICON 1
 IDI_APPICON ICON "../assets/ext4windows.ico"
+
+// GUI HTML resource: the entire WebView2 GUI is embedded here.
+// RCDATA means "raw binary data" — the resource compiler just copies
+// the file contents into the .exe without any processing.
+// At runtime, gui_resources.hpp loads this with FindResourceW().
+//
+// Docs: https://learn.microsoft.com/en-us/windows/win32/menurc/rcdata-resource
+#define IDR_GUI_HTML 100
+IDR_GUI_HTML RCDATA "../assets/gui.html"

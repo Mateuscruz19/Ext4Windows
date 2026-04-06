@@ -12,6 +12,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(WinFsp REQUIRED)
 
+# WebView2 — embedded Chromium browser for the GUI
+# The SDK lives in external/webview2/ (downloaded from NuGet).
+# Uses WebView2LoaderStatic.lib so no extra DLL is needed at runtime.
+# The WebView2 Runtime itself is built into Windows 10/11 (via Edge).
+find_package(WebView2 REQUIRED)
+
 # lwext4
 set(LIB_ONLY ON CACHE BOOL "" FORCE)
 add_subdirectory(external/lwext4)
@@ -30,6 +36,7 @@ add_executable(ext4windows
     src/client.cpp
     src/tray_icon.cpp
     src/interactive.cpp
+    src/gui/gui_main.cpp
     src/ext4windows.rc
 )
 
@@ -38,6 +45,7 @@ target_include_directories(ext4windows PRIVATE src)
 target_link_libraries(ext4windows PRIVATE
     lwext4
     WinFsp::WinFsp
+    WebView2::WebView2
 )
 
 target_compile_definitions(ext4windows PRIVATE

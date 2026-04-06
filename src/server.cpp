@@ -35,67 +35,131 @@
 // the generic hard drive icon.
 //
 // Registry path:
-//   HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\
+//   HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\
 //     DriveIcons\<letter>\DefaultIcon
 //
-// The value format is "path_to_exe,icon_index" — Windows loads
-// the icon resource from the exe. Index 0 is the first icon.
+// We use HKLM (local machine) because Windows 11 ignores HKCU
+// for drive icons. HKLM requires admin privileges, so we first
+// try writing directly (works if the server is already elevated),
+// and if that fails we use ShellExecuteW("runas") to run reg.exe
+// with a UAC prompt — the same pattern we use for partition scan.
 //
-// Using HKCU (current user) so no admin privileges needed.
-// HKLM would apply to all users but requires admin.
+// The value is the path to our .ico file. We find it by looking
+// next to the running exe (installed layout) or in the source
+// assets/ folder (development layout).
 //
-// In Python:
-//   import winreg
-//   key = winreg.CreateKey(winreg.HKEY_CURRENT_USER,
-//       r"Software\Microsoft\Windows\CurrentVersion\Explorer"
-//       r"\DriveIcons\Z\DefaultIcon")
-//   winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f"{exe},0")
+// In Python terms:
+//   subprocess.run(["reg", "add",
+//       r"HKLM\Software\...\DriveIcons\Z\DefaultIcon",
+//       "/ve", "/t", "REG_SZ", "/d", icon_path, "/f"],
+//       shell=True)
+//   # If access denied:
+//   ctypes.windll.shell32.ShellExecuteW(
+//       None, "runas", "reg.exe", args, None, 0)
 //
 // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
-//       winreg/nf-winreg-regcreateKeyexw
+//       winreg/nf-winreg-regcreatekeyexw
+// Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+//       shellapi/nf-shellapi-shellexecutew
 
-static void set_drive_icon(wchar_t drive_letter)
+// Find the .ico file path.
+// Checks two locations:
+//   1. Same folder as the exe (installed/release layout)
+//   2. ../assets/ relative to the exe (development layout, e.g. build2/)
+static std::wstring find_icon_path()
 {
     wchar_t exe_path[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
 
-    // Build: "C:\...\ext4windows.exe",0
-    std::wstring icon_value = L"\"";
-    icon_value += exe_path;
-    icon_value += L"\",0";
+    // Get directory of the exe
+    std::wstring exe_dir(exe_path);
+    auto pos = exe_dir.find_last_of(L"\\/");
+    if (pos != std::wstring::npos)
+        exe_dir = exe_dir.substr(0, pos);
 
-    // Build registry key path
+    // Try 1: icon next to the exe (installed layout)
+    std::wstring candidate = exe_dir + L"\\ext4windows.ico";
+    if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES)
+        return candidate;
+
+    // Try 2: ../assets/ (development layout, exe is in build2/)
+    candidate = exe_dir + L"\\..\\assets\\ext4windows.ico";
+    // Resolve to absolute path for clean registry value
+    wchar_t resolved[MAX_PATH] = {};
+    if (GetFullPathNameW(candidate.c_str(), MAX_PATH, resolved, nullptr) > 0
+        && GetFileAttributesW(resolved) != INVALID_FILE_ATTRIBUTES)
+        return resolved;
+
+    dbg("DriveIcon: icon file not found");
+    return L"";
+}
+
+static void set_drive_icon(wchar_t drive_letter)
+{
+    std::wstring icon_path = find_icon_path();
+    if (icon_path.empty()) return;
+
+    // Registry key path under HKLM
     wchar_t key_path[256];
     swprintf(key_path, 256,
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer"
         L"\\DriveIcons\\%c\\DefaultIcon", drive_letter);
 
+    // Try writing directly to HKLM (works if already elevated)
     HKEY key;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, key_path, 0, nullptr,
-                         0, KEY_SET_VALUE, nullptr, &key, nullptr)
-        == ERROR_SUCCESS)
-    {
-        RegSetValueExW(key, nullptr, 0, REG_SZ,
-            reinterpret_cast<const BYTE*>(icon_value.c_str()),
-            static_cast<DWORD>((icon_value.size() + 1) * sizeof(wchar_t)));
-        RegCloseKey(key);
-        dbg("DriveIcon: set for %c:", static_cast<char>(drive_letter));
+    LSTATUS result = RegCreateKeyExW(HKEY_LOCAL_MACHINE, key_path,
+        0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr);
 
-        // Notify Explorer to refresh the icon cache
-        SHChangeNotify(SHCNE_DRIVEADD, SHCNF_PATHW,
-            (std::wstring(1, drive_letter) + L":\\").c_str(), nullptr);
+    if (result == ERROR_SUCCESS) {
+        RegSetValueExW(key, nullptr, 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(icon_path.c_str()),
+            static_cast<DWORD>((icon_path.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+        dbg("DriveIcon: set for %c: (direct HKLM)", static_cast<char>(drive_letter));
+    } else {
+        // Not elevated — use reg.exe with UAC elevation.
+        // ShellExecuteW with "runas" verb triggers the UAC prompt.
+        // SW_HIDE = 0 hides the reg.exe console window.
+        std::wstring args = L"add \"HKLM\\";
+        args += key_path;
+        args += L"\" /ve /t REG_SZ /d \"";
+        args += icon_path;
+        args += L"\" /f";
+
+        ShellExecuteW(nullptr, L"runas", L"reg.exe",
+            args.c_str(), nullptr, SW_HIDE);
+        dbg("DriveIcon: set for %c: (elevated reg.exe)", static_cast<char>(drive_letter));
     }
+
+    // Notify Explorer to refresh the icon cache.
+    // SHCNE_ASSOCCHANGED forces a full icon cache refresh so
+    // the custom icon from the registry is picked up immediately.
+    std::wstring drive_root = std::wstring(1, drive_letter) + L":\\";
+    SHChangeNotify(SHCNE_DRIVEADD, SHCNF_PATHW,
+        drive_root.c_str(), nullptr);
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 }
 
 static void remove_drive_icon(wchar_t drive_letter)
 {
+    // Registry key path under HKLM
     wchar_t key_path[256];
     swprintf(key_path, 256,
         L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer"
         L"\\DriveIcons\\%c", drive_letter);
 
-    // Delete the DefaultIcon subkey, then the drive letter key
-    RegDeleteTreeW(HKEY_CURRENT_USER, key_path);
+    // Try deleting directly from HKLM (works if already elevated)
+    LSTATUS result = RegDeleteTreeW(HKEY_LOCAL_MACHINE, key_path);
+
+    if (result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND) {
+        // Not elevated — use reg.exe with UAC elevation
+        std::wstring args = L"delete \"HKLM\\";
+        args += key_path;
+        args += L"\" /f";
+
+        ShellExecuteW(nullptr, L"runas", L"reg.exe",
+            args.c_str(), nullptr, SW_HIDE);
+    }
     dbg("DriveIcon: removed for %c:", static_cast<char>(drive_letter));
 
     SHChangeNotify(SHCNE_DRIVEREMOVED, SHCNF_PATHW,

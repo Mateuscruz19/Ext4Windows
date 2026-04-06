@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ext4Windows</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --bg: #1b1b1b;
+    --sidebar: #161616;
+    --surface: #242424;
+    --surface2: #2c2c2c;
+    --input: #333;
+    --text: #d4d4d4;
+    --text2: #888;
+    --text3: #555;
+    --head: #eee;
+    --line: #333;
+    --blue: #4da6ff;
+    --blue-h: #3d96ef;
+    --blue-bg: rgba(77,166,255,0.08);
+    --orange: #d49a5a;
+    --green: #6abf69;
+    --green-bg: rgba(106,191,105,0.1);
+    --red: #d46060;
+    --red-bg: rgba(212,96,96,0.1);
+}
+
+body {
+    font: 13px/1.5 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ═══ Sidebar ═══ */
+.side {
+    width: 200px;
+    background: var(--sidebar);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    border-right: 1px solid var(--line);
+}
+
+.logo {
+    padding: 24px 20px 20px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.logo h1 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--head);
+}
+
+.logo span {
+    font-size: 10px;
+    color: var(--text3);
+    font-weight: 400;
+}
+
+.nav { padding: 4px 8px; flex: 1; }
+
+.nav a {
+    display: block;
+    padding: 8px 12px;
+    color: var(--text2);
+    text-decoration: none;
+    font-size: 13px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 2px;
+    transition: all 0.1s;
+}
+
+.nav a:hover {
+    color: var(--text);
+    background: rgba(255,255,255,0.04);
+}
+
+.nav a.on {
+    color: var(--head);
+    background: var(--blue-bg);
+}
+
+.nav .sep {
+    height: 1px;
+    background: var(--line);
+    margin: 8px 12px;
+}
+
+.nav .push { flex: 1; }
+
+.side-foot {
+    padding: 12px 20px;
+    border-top: 1px solid var(--line);
+}
+
+.side-foot a {
+    color: var(--text3);
+    text-decoration: none;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.side-foot a:hover { color: var(--text2); }
+
+/* ═══ Main ═══ */
+.main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.page { display: none; }
+.page.on { display: block; }
+
+/* Page header */
+.ph {
+    padding: 28px 32px 0;
+}
+
+.ph h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--head);
+    letter-spacing: -0.3px;
+}
+
+.ph p {
+    font-size: 13px;
+    color: var(--text2);
+    margin-top: 4px;
+}
+
+/* Page body */
+.pb {
+    padding: 20px 32px 48px;
+}
+
+/* ═══ Card ═══ */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 12px;
+}
+
+.card-head {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text3);
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+}
+
+/* ═══ Form ═══ */
+.f { margin-bottom: 16px; }
+
+.f > label {
+    display: block;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+.row { display: flex; gap: 8px; align-items: center; }
+
+input[type="text"], select {
+    background: var(--input);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+input[type="text"]:focus { border-color: var(--blue); }
+input[type="text"] { flex: 1; }
+select { min-width: 80px; }
+
+/* ═══ Buttons ═══ */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    border: none;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+
+.btn-p { background: var(--blue); color: #fff; }
+.btn-p:hover { background: var(--blue-h); }
+
+.btn-s { background: var(--surface2); color: var(--text); border: 1px solid var(--line); }
+.btn-s:hover { background: var(--input); }
+
+.btn-d { background: var(--red-bg); color: var(--red); border: 1px solid rgba(212,96,96,0.2); }
+.btn-d:hover { background: rgba(212,96,96,0.18); }
+
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+
+.btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+
+/* ═══ Radio ═══ */
+.radios { display: flex; gap: 20px; }
+
+.radios label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.radios input[type="radio"] { accent-color: var(--blue); }
+
+/* ═══ Table ═══ */
+table { width: 100%; border-collapse: collapse; }
+
+th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    color: var(--text3);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    letter-spacing: 0.3px;
+}
+
+td {
+    padding: 10px 12px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    vertical-align: middle;
+}
+
+.tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.tag-rw { background: var(--green-bg); color: var(--green); }
+.tag-ro { background: rgba(212,154,90,0.12); color: var(--orange); }
+
+/* ═══ Settings ═══ */
+.sr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.sr:last-child { border-bottom: none; }
+.sr-t { font-size: 13px; color: var(--text); }
+.sr-d { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+/* Toggle */
+.tog { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+.tog input { opacity: 0; width: 0; height: 0; position: absolute; }
+.tog-s {
+    position: absolute; inset: 0;
+    background: var(--text3);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.tog-s::before {
+    content: "";
+    position: absolute;
+    width: 14px; height: 14px;
+    left: 3px; bottom: 3px;
+    background: #ddd;
+    border-radius: 50%;
+    transition: transform 0.15s;
+}
+.tog input:checked + .tog-s { background: var(--blue); }
+.tog input:checked + .tog-s::before { transform: translateX(16px); }
+
+/* ═══ Status bar ═══ */
+.bar {
+    position: fixed;
+    bottom: 0; left: 200px; right: 0;
+    height: 26px;
+    background: var(--sidebar);
+    border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 11px;
+    color: var(--text3);
+    gap: 16px;
+}
+
+.dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 4px;
+    background: var(--green);
+}
+
+/* ═══ Toast ═══ */
+.toast {
+    position: fixed;
+    bottom: 40px; right: 20px;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #fff;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.2s;
+    z-index: 100;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast-ok { background: var(--green); }
+.toast-err { background: var(--red); }
+.toast-info { background: var(--blue); }
+
+/* ═══ Empty ═══ */
+.empty {
+    text-align: center;
+    padding: 40px 16px;
+    color: var(--text3);
+    font-size: 13px;
+}
+
+/* ═══ Scan ═══ */
+.si {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    margin-bottom: 6px;
+}
+.si .nm { font-size: 13px; color: var(--text); }
+.si .pt { font-size: 11px; color: var(--text3); margin-top: 2px; }
+
+/* ═══ Misc ═══ */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+
+.spin {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: sp 0.6s linear infinite;
+    vertical-align: middle;
+}
+
+@keyframes sp { to { transform: rotate(360deg); } }
+
+/* Quick stats on mount page */
+.stats {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.stat {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.stat-val {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--head);
+    letter-spacing: -0.5px;
+}
+
+.stat-lbl {
+    font-size: 11px;
+    color: var(--text3);
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+</style>
+</head>
+<body>
+
+<nav class="side">
+    <div class="logo">
+        <h1>Ext4Windows</h1>
+        <span id="ver">v1.0.5</span>
+    </div>
+    <div class="nav" style="display:flex;flex-direction:column;">
+        <a class="on" onclick="go('mount')" id="n-mount">Mount</a>
+        <a onclick="go('scan')" id="n-scan">Scan</a>
+        <a onclick="go('status')" id="n-status">Status</a>
+        <div class="sep"></div>
+        <a onclick="go('settings')" id="n-settings">Settings</a>
+        <div class="push"></div>
+        <a onclick="go('about')" id="n-about">About</a>
+    </div>
+</nav>
+
+<main class="main">
+
+    <!-- ═══ Mount ═══ -->
+    <div class="page on" id="p-mount">
+        <div class="ph">
+            <h2>Mount</h2>
+            <p>Mount an ext4 disk image as a Windows drive letter</p>
+        </div>
+        <div class="pb">
+            <div class="stats" id="quick-stats">
+                <div class="stat" style="cursor:pointer;" onclick="go('status')" title="View active mounts">
+                    <div class="stat-val" id="qs-mounts">0</div>
+                    <div class="stat-lbl">Active mounts</div>
+                    <div id="qs-drives" style="font-size:12px;color:var(--text2);margin-top:4px;"></div>
+                </div>
+                <div class="stat">
+                    <div class="stat-val" id="qs-free">--</div>
+                    <div class="stat-lbl">Free drives</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-head">Image file</div>
+                <div class="f">
+                    <label>Path</label>
+                    <div class="row">
+                        <input type="text" id="m-path" placeholder="Drag a file here or click Browse">
+                        <button class="btn btn-s" onclick="browse()">Browse</button>
+                    </div>
+                </div>
+                <div class="row" style="gap: 20px;">
+                    <div class="f" style="flex:0;">
+                        <label>Drive</label>
+                        <select id="m-drv"></select>
+                    </div>
+                    <div class="f" style="flex:1;">
+                        <label>Mode</label>
+                        <div class="radios">
+                            <label><input type="radio" name="m-mode" value="RW" checked> Read-write</label>
+                            <label><input type="radio" name="m-mode" value="RO"> Read-only</label>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-p" onclick="doMount()" id="btn-mount">Mount</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Scan ═══ -->
+    <div class="page" id="p-scan">
+        <div class="ph">
+            <h2>Scan</h2>
+            <p>Detect ext4 partitions on connected disks</p>
+        </div>
+        <div class="pb">
+            <div class="card">
+                <p style="font-size: 12px; color: var(--text2); margin-bottom: 14px;">
+                    This will scan all physical disks for ext4 partitions.<br>
+                    A UAC prompt will appear to request administrator access.
+                </p>
+                <div class="row" style="gap: 20px; margin-bottom: 16px;">
+                    <div class="f" style="flex:0; margin-bottom:0;">
+                        <label>Drive</label>
+                        <select id="sc-drv"></select>
+                    </div>
+                    <div class="f" style="flex:1; margin-bottom:0;">
+                        <label>Mode</label>
+                        <div class="radios">
+                            <label><input type="radio" name="sc-mode" value="RW" checked> Read-write</label>
+                            <label><input type="radio" name="sc-mode" value="RO"> Read-only</label>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-p" onclick="doScan()" id="btn-scan">Scan disks</button>
+            </div>
+            <div id="scan-out"></div>
+        </div>
+    </div>
+
+    <!-- ═══ Status ═══ -->
+    <div class="page" id="p-status">
+        <div class="ph">
+            <h2>Status</h2>
+            <p>Currently mounted ext4 drives</p>
+        </div>
+        <div class="pb">
+            <div class="card" id="st-card">
+                <div class="empty" id="st-empty">No active mounts</div>
+                <table id="st-tbl" style="display:none;">
+                    <thead><tr><th>Drive</th><th>Source</th><th>Mode</th><th style="width:90px;"></th></tr></thead>
+                    <tbody id="st-body"></tbody>
+                </table>
+            </div>
+            <button class="btn btn-s btn-sm" onclick="refreshStatus()">Refresh</button>
+        </div>
+    </div>
+
+    <!-- ═══ Settings ═══ -->
+    <div class="page" id="p-settings">
+        <div class="ph">
+            <h2>Settings</h2>
+        </div>
+        <div class="pb">
+            <div class="card">
+                <div class="sr">
+                    <div><div class="sr-t">Start on login</div><div class="sr-d">Launch the background server when Windows starts</div></div>
+                    <label class="tog"><input type="checkbox" id="s-auto" onchange="setAuto()"><span class="tog-s"></span></label>
+                </div>
+                <div class="sr">
+                    <div><div class="sr-t">Default access mode</div><div class="sr-d">Applied when mounting new drives</div></div>
+                    <select id="s-mode" onchange="setMode()"><option value="RW">Read-write</option><option value="RO">Read-only</option></select>
+                </div>
+                <div class="sr">
+                    <div><div class="sr-t">Debug logging</div><div class="sr-d">Write detailed logs to the temp folder</div></div>
+                    <label class="tog"><input type="checkbox" id="s-dbg" onchange="setDbg()"><span class="tog-s"></span></label>
+                </div>
+                <div class="sr">
+                    <div><div class="sr-t">Server log</div><div class="sr-d">Open the log file in your default text editor</div></div>
+                    <button class="btn btn-s btn-sm" onclick="viewLogs()">View logs</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ About ═══ -->
+    <div class="page" id="p-about">
+        <div class="ph">
+            <h2>About</h2>
+        </div>
+        <div class="pb">
+            <div class="card" style="padding: 32px 24px;">
+                <div style="font-size: 18px; font-weight: 600; color: var(--head);">Ext4Windows</div>
+                <div style="font-size: 12px; color: var(--text3); margin-top: 4px;" id="about-ver">Version 1.0.5</div>
+                <p style="margin-top: 16px; color: var(--text2); font-size: 13px; line-height: 1.6;">
+                    Mount ext4 Linux filesystems as native Windows drive letters.<br>
+                    Built with WinFsp, lwext4, and WebView2.
+                </p>
+                <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12px; color: var(--text3);">
+                    Copyright 2026 Mateus Cruz &middot; Licensed under GPL v2
+                </div>
+                <div style="margin-top: 12px;">
+                    <button class="btn btn-s btn-sm" onclick="openGH()">View on GitHub</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<div class="bar">
+    <span><span class="dot" id="sv-dot"></span><span id="sv-st">Server running</span></span>
+    <span id="mc">0 mounts</span>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+/* ═══ Nav ═══ */
+function go(p) {
+    document.querySelectorAll('.page').forEach(function(e) { e.classList.remove('on'); });
+    document.querySelectorAll('.nav a').forEach(function(e) { e.classList.remove('on'); });
+    document.getElementById('p-' + p).classList.add('on');
+    document.getElementById('n-' + p).classList.add('on');
+    if (p === 'status') refreshStatus();
+}
+
+function toast(msg, t) {
+    var el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast toast-' + (t || 'info') + ' show';
+    setTimeout(function() { el.classList.remove('show'); }, 3000);
+}
+
+/* ═══ Pipe ═══ */
+function cmd(c, cb) {
+    var id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+    window._q = window._q || {};
+    window._q[id] = cb;
+    window.chrome.webview.postMessage({ id: id, command: c });
+}
+
+window.chrome.webview.addEventListener('message', function(e) {
+    var d = e.data;
+    if (d.id && window._q && window._q[d.id]) { window._q[d.id](d.response); delete window._q[d.id]; return; }
+    if (d.type === 'notification') toast(d.message, d.level || 'info');
+    if (d.type === 'server_status') {
+        var dot = document.getElementById('sv-dot');
+        var st = document.getElementById('sv-st');
+        if (d.running) {
+            dot.style.background = 'var(--green)';
+            st.textContent = 'Server running';
+        } else {
+            dot.style.background = 'var(--red)';
+            st.textContent = 'Server offline — reconnecting...';
+        }
+    }
+    if (d.type === 'init') {
+        if (d.version) {
+            document.getElementById('ver').textContent = 'v' + d.version;
+            document.getElementById('about-ver').textContent = 'Version ' + d.version;
+        }
+        if (d.drives) {
+            fillDrv(d.drives);
+            document.getElementById('qs-free').textContent = d.drives.length;
+        }
+        if (d.config) applyCfg(d.config);
+    }
+    if (d.type === 'file_selected') document.getElementById('m-path').value = d.path;
+    if (d.type === 'scan_results') showScan(d.partitions);
+});
+
+/* ═══ Drives ═══ */
+function fillDrv(list) {
+    ['m-drv', 'sc-drv'].forEach(function(id) {
+        var s = document.getElementById(id);
+        if (!s) return;
+        s.innerHTML = '';
+        list.forEach(function(d) {
+            var o = document.createElement('option');
+            o.value = d; o.textContent = d + ':';
+            s.appendChild(o);
+        });
+    });
+}
+
+/* ═══ Mount ═══ */
+function doMount() {
+    var path = document.getElementById('m-path').value.trim();
+    if (!path) { toast('Select an image file first', 'err'); return; }
+    var drv = document.getElementById('m-drv').value;
+    var mode = document.querySelector('input[name="m-mode"]:checked').value;
+    var b = document.getElementById('btn-mount');
+    b.disabled = true; b.innerHTML = '<span class="spin"></span> Mounting';
+    cmd('MOUNT ' + drv + ' ' + mode + ' ' + path, function(r) {
+        b.disabled = false; b.textContent = 'Mount';
+        if (r.startsWith('OK')) {
+            toast('Mounted on ' + drv + ':', 'ok');
+            document.getElementById('m-path').value = '';
+            refreshStatus(); refreshDrv();
+        } else { toast(r.replace('ERROR ', ''), 'err'); }
+    });
+}
+
+function doUnmount(l) {
+    cmd('UNMOUNT ' + l, function(r) {
+        if (r.startsWith('OK')) { toast('Unmounted ' + l + ':', 'ok'); refreshStatus(); refreshDrv(); }
+        else { toast(r.replace('ERROR ', ''), 'err'); }
+    });
+}
+
+/* ═══ Status ═══ */
+function refreshStatus() {
+    cmd('STATUS', function(r) {
+        var lines = r.split('\n'), mts = [], tb = document.getElementById('st-body');
+        tb.innerHTML = '';
+        for (var i = 1; i < lines.length; i++) {
+            var m = lines[i].trim().match(/^([A-Z]):\s+(.+?)\s+\((read-(?:only|write))\)$/);
+            if (m) mts.push({ d: m[1], s: m[2], m: m[3] === 'read-write' ? 'RW' : 'RO' });
+        }
+        document.getElementById('st-tbl').style.display = mts.length ? 'table' : 'none';
+        document.getElementById('st-empty').style.display = mts.length ? 'none' : 'block';
+        mts.forEach(function(x) {
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td><a href="#" onclick="openDrive(\'' + x.d + '\');return false;" style="color:var(--blue);text-decoration:none;font-weight:600;cursor:pointer;">' + x.d + ':</a></td><td>' + esc(x.s) +
+                '</td><td><span class="tag tag-' + x.m.toLowerCase() + '">' +
+                (x.m === 'RW' ? 'Read-write' : 'Read-only') +
+                '</span></td><td><button class="btn btn-d btn-sm" onclick="doUnmount(\'' + x.d + '\')">Unmount</button></td>';
+            tb.appendChild(tr);
+        });
+        document.getElementById('mc').textContent = mts.length + ' mount' + (mts.length !== 1 ? 's' : '');
+        document.getElementById('qs-mounts').textContent = mts.length;
+        var drList = mts.map(function(x) { return x.d + ':'; }).join('  ');
+        document.getElementById('qs-drives').textContent = drList;
+    });
+}
+
+/* ═══ Scan ═══ */
+function doScan() {
+    var b = document.getElementById('btn-scan');
+    b.disabled = true; b.innerHTML = '<span class="spin"></span> Scanning';
+    window.chrome.webview.postMessage({ command: 'GUI_SCAN' });
+    setTimeout(function() { b.disabled = false; b.textContent = 'Scan disks'; }, 30000);
+}
+
+function showScan(pts) {
+    var b = document.getElementById('btn-scan');
+    b.disabled = false; b.textContent = 'Scan disks';
+    var c = document.getElementById('scan-out');
+    if (!pts || !pts.length) {
+        c.innerHTML = '<div class="card" style="margin-top:12px;"><div class="empty">No ext4 partitions found.<br>Make sure your Linux disk is connected.</div></div>';
+        return;
+    }
+    var h = '<div style="margin:16px 0 10px;font-size:12px;color:var(--text2);">' + pts.length + ' partition' + (pts.length > 1 ? 's' : '') + ' found</div>';
+    pts.forEach(function(p, i) {
+        h += '<div class="si"><div><div class="nm">' + esc(p.name) + '</div><div class="pt">' + esc(p.path) + '</div></div>' +
+            '<button class="btn btn-p btn-sm" onclick="mountP(' + i + ')">Mount</button></div>';
+    });
+    c.innerHTML = h;
+    window._sc = pts;
+}
+
+function mountP(i) {
+    var p = window._sc[i]; if (!p) return;
+    var drv = document.getElementById('sc-drv').value;
+    var mode = document.querySelector('input[name="sc-mode"]:checked').value;
+    cmd('MOUNT_PARTITION ' + drv + ' ' + mode + ' ' + p.path, function(r) {
+        if (r.startsWith('OK')) { toast('Mounted on ' + drv + ':', 'ok'); refreshStatus(); refreshDrv(); }
+        else { toast(r.replace('ERROR ', ''), 'err'); }
+    });
+}
+
+/* ═══ UI actions ═══ */
+function browse() { window.chrome.webview.postMessage({ command: 'GUI_BROWSE' }); }
+function openDrive(letter) { window.chrome.webview.postMessage({ command: 'GUI_OPEN_DRIVE', drive: letter }); }
+function refreshDrv() { window.chrome.webview.postMessage({ command: 'GUI_REFRESH_DRIVES' }); }
+function viewLogs() { window.chrome.webview.postMessage({ command: 'GUI_VIEW_LOGS' }); }
+function openGH() { window.chrome.webview.postMessage({ command: 'GUI_OPEN_URL', url: 'https://github.com/Mateuscruz19/Ext4Windows' }); }
+
+function applyCfg(c) {
+    if (c.autostart !== undefined) document.getElementById('s-auto').checked = c.autostart;
+    if (c.default_mode) document.getElementById('s-mode').value = c.default_mode;
+    if (c.debug !== undefined) document.getElementById('s-dbg').checked = c.debug;
+}
+
+function setAuto() { window.chrome.webview.postMessage({ command: 'GUI_SET_AUTOSTART', value: document.getElementById('s-auto').checked }); }
+function setMode() { window.chrome.webview.postMessage({ command: 'GUI_SET_MODE', value: document.getElementById('s-mode').value }); }
+function setDbg() { window.chrome.webview.postMessage({ command: 'GUI_SET_DEBUG', value: document.getElementById('s-dbg').checked }); }
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/* ═══ Auto-refresh ═══ */
+setInterval(function() { if (document.getElementById('p-status').classList.contains('on')) refreshStatus(); }, 5000);
+
+refreshStatus();
+</script>
+</body>
+</html>

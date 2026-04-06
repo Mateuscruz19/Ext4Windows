@@ -26,6 +26,7 @@
 #include "server.hpp"
 #include "client.hpp"
 #include "interactive.hpp"
+#include "gui/gui_main.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -876,7 +877,8 @@ int wmain(int argc, wchar_t* argv[])
             wcscmp(argv[i], L"--server-daemon") == 0 ||
             wcscmp(argv[i], L"--scan-save") == 0 ||
             wcscmp(argv[i], L"--open-device") == 0 ||
-            wcscmp(argv[i], L"--scan") == 0) {
+            wcscmp(argv[i], L"--scan") == 0 ||
+            wcscmp(argv[i], L"--tui") == 0) {
             subcmd_idx = i;
             break;
         }
@@ -1012,7 +1014,17 @@ int wmain(int argc, wchar_t* argv[])
         return run(image_path, mount_buf, false, cli_read_only);
     }
 
-    // Interactive mode: no arguments — launch the interactive shell.
+    // GUI mode: no arguments — launch the graphical interface.
     // This is the main user experience when someone double-clicks the exe.
-    return interactive_main();
+    // The GUI uses WebView2 (Chromium embedded browser) with an HTML
+    // interface that communicates with the server via the same pipe protocol.
+    //
+    // Use --tui to force the old terminal-based interactive mode:
+    //   ext4windows --tui
+    for (int i = 1; i < argc; i++) {
+        if (wcscmp(argv[i], L"--tui") == 0)
+            return interactive_main();
+    }
+
+    return gui_main();
 }
