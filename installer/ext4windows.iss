@@ -9,7 +9,7 @@
 ; The installer will be created in the "Output" folder.
 
 #define MyAppName "Ext4Windows"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Ext4Windows"
 #define MyAppURL "https://github.com/Mateuscruz19/Ext4Windows"
 #define MyAppExeName "ext4windows.exe"
@@ -55,6 +55,9 @@ Source: "..\build\ext4windows.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; WinFsp runtime DLL
 Source: "..\build\winfsp-x64.dll"; DestDir: "{app}"; Flags: ignoreversion
+
+; Icon file (used for custom drive icons in Explorer)
+Source: "..\assets\ext4windows.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 ; License
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion

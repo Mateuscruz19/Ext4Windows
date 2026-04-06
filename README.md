@@ -596,9 +596,16 @@ ctest --output-on-failure
 - [x] Security audit (ASan, CppCheck, MSVC /analyze, CRT leak check)
 - [x] Test suite (110 tests, 1359 assertions)
 
+### v1.1.0 — Complete
+
+- [x] WebView2 GUI (dark theme, sidebar navigation)
+- [x] Mount, Scan, Status, Settings, About pages
+- [x] Server health monitoring with auto-restart
+- [x] Custom drive icon in Windows Explorer (HKLM registry)
+- [x] New logo (disk + Tux + Windows)
+
 ### Future Ideas
 
-- [ ] GUI with Qt 6
 - [ ] ext4 encryption support
 - [ ] Drag-and-drop `.img` files onto the exe to mount
 
