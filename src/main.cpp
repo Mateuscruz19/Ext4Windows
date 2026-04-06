@@ -844,64 +844,115 @@ static int do_scan(const wchar_t* mount_point, bool interactive,
 
 int wmain(int argc, wchar_t* argv[])
 {
+    // ── Parse global flags first ─────────────────────────────
+    // Scan ALL arguments for --debug before doing anything else.
+    // This way "--debug" works in any position:
+    //   ext4windows --debug mount test.img
+    //   ext4windows mount test.img --debug
+    //
+    // In Python, this would be like argparse with a global flag
+    // that doesn't depend on subcommand position.
+    for (int i = 1; i < argc; i++) {
+        if (wcscmp(argv[i], L"--debug") == 0)
+            g_debug = true;
+    }
+
+    // ── Find the subcommand (skipping flags) ─────────────────
+    // Look for the first non-flag argument to determine what mode
+    // we're in. This lets flags appear before or after the subcommand:
+    //   ext4windows --debug mount ...
+    //   ext4windows mount --debug ...
+    // Both work the same way.
+    int subcmd_idx = 0;  // index of the subcommand in argv (0 = none found)
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] != L'-') {
+            subcmd_idx = i;
+            break;
+        }
+        // Special case: flags that ARE the subcommand
+        if (wcscmp(argv[i], L"--help") == 0 || wcscmp(argv[i], L"-h") == 0 ||
+            wcscmp(argv[i], L"/?") == 0 ||
+            wcscmp(argv[i], L"--server") == 0 ||
+            wcscmp(argv[i], L"--server-daemon") == 0 ||
+            wcscmp(argv[i], L"--scan-save") == 0 ||
+            wcscmp(argv[i], L"--open-device") == 0 ||
+            wcscmp(argv[i], L"--scan") == 0) {
+            subcmd_idx = i;
+            break;
+        }
+    }
+
     // CLI mode: ext4windows <image> [drive] or ext4windows --scan [drive]
-    if (argc >= 2) {
+    if (argc >= 2 && subcmd_idx > 0) {
+        const wchar_t* subcmd = argv[subcmd_idx];
+
         // Check for --help / -h / /?
-        if (wcscmp(argv[1], L"--help") == 0 ||
-            wcscmp(argv[1], L"-h") == 0 ||
-            wcscmp(argv[1], L"/?") == 0) {
+        if (wcscmp(subcmd, L"--help") == 0 ||
+            wcscmp(subcmd, L"-h") == 0 ||
+            wcscmp(subcmd, L"/?") == 0) {
             print_usage();
             return 0;
         }
 
-        // Server mode: run as background daemon
-        if (wcscmp(argv[1], L"--server") == 0) {
-            // Parse --debug before starting server
+        // Server mode: relaunch as detached background process and exit
+        if (wcscmp(subcmd, L"--server") == 0) {
+            wchar_t exe_path[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+
+            std::wstring cmd = L"\"" + std::wstring(exe_path) + L"\" --server-daemon";
             for (int i = 2; i < argc; i++) {
-                if (wcscmp(argv[i], L"--debug") == 0)
-                    g_debug = true;
+                cmd += L" ";
+                cmd += argv[i];
             }
+
+            STARTUPINFOW si = { sizeof(si) };
+            PROCESS_INFORMATION pi = {};
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr,
+                               FALSE, CREATE_NO_WINDOW | DETACHED_PROCESS,
+                               nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+            }
+            return 0;  // Exit immediately — terminal closes
+        }
+
+        // Actual server process (launched detached by --server above)
+        if (wcscmp(subcmd, L"--server-daemon") == 0) {
             return run_server();
         }
 
         // Client subcommands: mount, unmount, status, scan, quit
-        if (wcscmp(argv[1], L"mount") == 0 ||
-            wcscmp(argv[1], L"unmount") == 0 ||
-            wcscmp(argv[1], L"status") == 0 ||
-            wcscmp(argv[1], L"scan") == 0 ||
-            wcscmp(argv[1], L"quit") == 0) {
-            // Parse --debug before sending command
-            for (int i = 2; i < argc; i++) {
-                if (wcscmp(argv[i], L"--debug") == 0)
-                    g_debug = true;
-            }
+        // Note: g_debug is already set at the top, no need to re-parse.
+        if (wcscmp(subcmd, L"mount") == 0 ||
+            wcscmp(subcmd, L"unmount") == 0 ||
+            wcscmp(subcmd, L"status") == 0 ||
+            wcscmp(subcmd, L"scan") == 0 ||
+            wcscmp(subcmd, L"quit") == 0) {
             return client_main(argc, argv);
         }
 
         // Internal command: --scan-save <file> (elevated subprocess)
-        if (wcscmp(argv[1], L"--scan-save") == 0 && argc >= 3) {
-            return do_scan_save(argv[2]);
+        if (wcscmp(subcmd, L"--scan-save") == 0 && argc >= 3) {
+            return do_scan_save(argv[subcmd_idx + 1]);
         }
 
         // Internal command: --open-device <path> <pid> <file> [--rw]
-        if (wcscmp(argv[1], L"--open-device") == 0 && argc >= 5) {
+        if (wcscmp(subcmd, L"--open-device") == 0 && argc >= 5) {
             bool rw = false;
             for (int i = 5; i < argc; i++) {
                 if (wcscmp(argv[i], L"--rw") == 0) rw = true;
             }
-            return do_open_device(argv[2],
-                                  static_cast<DWORD>(_wtoi(argv[3])),
-                                  argv[4], !rw);
+            return do_open_device(argv[subcmd_idx + 1],
+                                  static_cast<DWORD>(_wtoi(argv[subcmd_idx + 2])),
+                                  argv[subcmd_idx + 3], !rw);
         }
 
-        // Parse CLI flags first (they can appear anywhere)
+        // Parse CLI flags for legacy mode
         bool cli_read_only = true;
         bool cli_scan = false;
         for (int i = 1; i < argc; i++) {
             if (wcscmp(argv[i], L"--rw") == 0)
                 cli_read_only = false;
-            if (wcscmp(argv[i], L"--debug") == 0)
-                g_debug = true;
             if (wcscmp(argv[i], L"--scan") == 0)
                 cli_scan = true;
         }
