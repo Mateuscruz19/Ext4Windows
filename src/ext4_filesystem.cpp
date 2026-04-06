@@ -277,9 +277,32 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetVolumeInfo(FSP_FILE_SYSTEM* FileSystem,
     VolumeInfo->TotalSize = stats.blocks_count * stats.block_size;
     VolumeInfo->FreeSize = stats.free_blocks_count * stats.block_size;
 
-    // Volume label
+    // Volume label — read from the ext4 superblock.
+    // The volume_name field is set when the filesystem is created
+    // (e.g. `mkfs.ext4 -L "arch_root" /dev/sda2`). It's stored in
+    // the superblock as a 16-byte UTF-8 string.
+    //
+    // If the volume has a label, we show it (e.g. "arch_root").
+    // If it's empty, we show "Ext4 Volume" as a friendly default
+    // instead of just "Local Disk".
+    //
+    // stats.volume_name is a char[16] from ext4_mount_point_stats().
+    // Docs: https://github.com/gkostka/lwext4 (ext4.h, ext4_mount_stats)
+    const char* label = stats.volume_name;
+    wchar_t wlabel[64] = {};
+
+    if (label[0] != '\0') {
+        // Convert UTF-8 volume name to wide string for Windows
+        MultiByteToWideChar(CP_UTF8, 0, label, -1, wlabel, 64);
+    } else {
+        wcscpy_s(wlabel, L"Ext4 Volume");
+    }
+
+    dbg("GetVolumeInfo: label='%s' total=%llu free=%llu",
+        label, VolumeInfo->TotalSize, VolumeInfo->FreeSize);
+
     wcscpy_s(VolumeInfo->VolumeLabel,
-             sizeof(VolumeInfo->VolumeLabel) / sizeof(WCHAR), L"ext4");
+             sizeof(VolumeInfo->VolumeLabel) / sizeof(WCHAR), wlabel);
     VolumeInfo->VolumeLabelLength =
         static_cast<UINT16>(wcslen(VolumeInfo->VolumeLabel) * sizeof(WCHAR));
 
