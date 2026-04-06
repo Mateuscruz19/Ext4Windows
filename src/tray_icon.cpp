@@ -117,9 +117,10 @@ void TrayIcon::ShowContextMenu()
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
 
-    // Add header (disabled, just for display)
-    AppendMenuW(menu, MF_STRING | MF_DISABLED | MF_GRAYED,
-                0, L"Ext4Windows");
+    // "Open" item at the top — launches the interactive terminal.
+    // MF_DEFAULT makes it bold, signaling it's the "main action"
+    // (same as what double-click does).
+    AppendMenuW(menu, MF_STRING | MF_DEFAULT, IDM_OPEN, L"Open Ext4Windows");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 
     // Add active mounts
@@ -184,7 +185,16 @@ LRESULT CALLBACK TrayIcon::WndProc(HWND hwnd, UINT msg,
                                     WPARAM wParam, LPARAM lParam)
 {
     if (msg == WM_TRAYICON && g_tray_instance) {
-        // lParam contains the mouse message
+        // lParam contains the mouse message.
+        // WM_LBUTTONDBLCLK = double-click on tray icon.
+        // WM_RBUTTONUP / WM_CONTEXTMENU = right-click menu.
+        //
+        // Docs: https://learn.microsoft.com/en-us/windows/win32/shell/
+        //       notification-area
+        if (LOWORD(lParam) == WM_LBUTTONDBLCLK) {
+            g_tray_instance->LaunchInteractive();
+            return 0;
+        }
         if (LOWORD(lParam) == WM_RBUTTONUP ||
             LOWORD(lParam) == WM_CONTEXTMENU) {
             g_tray_instance->ShowContextMenu();
@@ -194,6 +204,11 @@ LRESULT CALLBACK TrayIcon::WndProc(HWND hwnd, UINT msg,
 
     if (msg == WM_COMMAND && g_tray_instance) {
         UINT cmd_id = LOWORD(wParam);
+
+        if (cmd_id == IDM_OPEN) {
+            g_tray_instance->LaunchInteractive();
+            return 0;
+        }
 
         if (cmd_id == IDM_QUIT) {
             g_tray_instance->manager_.Quit();
@@ -231,6 +246,53 @@ LRESULT CALLBACK TrayIcon::WndProc(HWND hwnd, UINT msg,
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+// ── Launch interactive terminal ─────────────────────────
+// Opens a new terminal window running ext4windows.exe with
+// no arguments (interactive mode). Uses CreateProcessW to
+// launch ourselves — the same exe, but without "--server".
+//
+// CREATE_NEW_CONSOLE creates a separate console window for
+// the interactive session (the server itself has no console
+// because it called FreeConsole on startup).
+//
+// In Python terms, this is like:
+//   subprocess.Popen([sys.executable], creationflags=CREATE_NEW_CONSOLE)
+//
+// Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+//       processthreadsapi/nf-processthreadsapi-createprocessw
+
+void TrayIcon::LaunchInteractive()
+{
+    wchar_t exe_path[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+
+    // Quote the path in case it contains spaces
+    std::wstring cmd = L"\"";
+    cmd += exe_path;
+    cmd += L"\"";
+
+    STARTUPINFOW si = {};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi = {};
+
+    if (CreateProcessW(
+            exe_path,
+            const_cast<LPWSTR>(cmd.c_str()),
+            nullptr, nullptr,
+            FALSE,
+            CREATE_NEW_CONSOLE,  // Opens in its own terminal window
+            nullptr, nullptr,
+            &si, &pi))
+    {
+        // We don't need to track this process — close handles immediately
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        dbg("TrayIcon: launched interactive terminal");
+    } else {
+        dbg("TrayIcon: failed to launch interactive (err=%lu)", GetLastError());
+    }
 }
 
 // ── Auto-start on login ─────────────────────────────────
