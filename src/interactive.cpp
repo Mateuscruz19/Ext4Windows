@@ -455,18 +455,25 @@ static void print_main_menu()
         "\xd0\xa0\xd0\xb0\xd0\xb7\xd0\xbc\xd0\xbe\xd0\xbd\xd1\x82\xd0\xb8\xd1\x80\xd0\xbe\xd0\xb2\xd0\xb0\xd1\x82\xd1\x8c \xd0\xb4\xd0\xb8\xd1\x81\xd0\xba"));
 
     set_color(CLR_ORANGE); printf("    [5] "); set_color(CLR_WHITE);
+    printf("%s\n", tr("Language", "Idioma", "Idioma",
+        "Sprache", "Langue",
+        "\xe8\xaf\xad\xe8\xa8\x80",
+        "\xe8\xa8\x80\xe8\xaa\x9e",
+        "\xd0\xaf\xd0\xb7\xd1\x8b\xd0\xba"));
+
+    set_color(CLR_ORANGE); printf("    [6] "); set_color(CLR_WHITE);
     printf("%s\n", tr("Settings", "Configuracoes", "Configuracion",
         "Einstellungen", "Parametres",
         "\xe8\xae\xbe\xe7\xbd\xae",
         "\xe8\xa8\xad\xe5\xae\x9a",
         "\xd0\x9d\xd0\xb0\xd1\x81\xd1\x82\xd1\x80\xd0\xbe\xd0\xb9\xd0\xba\xd0\xb8"));
 
-    set_color(CLR_ORANGE); printf("    [6] "); set_color(CLR_WHITE);
+    set_color(CLR_ORANGE); printf("    [7] "); set_color(CLR_WHITE);
     printf("%s\n", tr("Help", "Ajuda", "Ayuda", "Hilfe", "Aide",
         "\xe5\xb8\xae\xe5\x8a\xa9", "\xe3\x83\x98\xe3\x83\xab\xe3\x83\x97",
         "\xd0\x9f\xd0\xbe\xd0\xbc\xd0\xbe\xd1\x89\xd1\x8c"));
 
-    set_color(CLR_ORANGE); printf("    [7] "); set_color(CLR_WHITE);
+    set_color(CLR_ORANGE); printf("    [8] "); set_color(CLR_WHITE);
     printf("%s\n", tr("Quit", "Sair", "Salir", "Beenden", "Quitter",
         "\xe9\x80\x80\xe5\x87\xba", "\xe7\xb5\x82\xe4\xba\x86",
         "\xd0\x92\xd1\x8b\xd1\x85\xd0\xbe\xd0\xb4"));
@@ -673,11 +680,14 @@ static void do_mount_image()
         "\xd0\x9c\xd0\xbe\xd0\xbd\xd1\x82\xd0\xb8\xd1\x80\xd0\xbe\xd0\xb2\xd0\xb0\xd0\xbd\xd0\xb8\xd0\xb5..."));
     reset_color();
 
+    // Protocol: "MOUNT <drive> [RW|RO] <source>"
+    // Path comes LAST so it can contain spaces.
     std::string cmd = "MOUNT ";
-    cmd += abs_path;
-    cmd += " ";
     cmd += drive_letter;
     if (read_write) cmd += " RW";
+    else            cmd += " RO";
+    cmd += " ";
+    cmd += abs_path;
 
     std::string response = send_command(cmd);
     print_result(response);
@@ -1544,9 +1554,16 @@ int interactive_main()
             case '2': do_scan_partitions(); break;
             case '3': do_status(); break;
             case '4': do_unmount(); break;
-            case '5': do_settings(); break;
-            case '6': do_help(); break;
-            case '7':
+            case '5': {
+                // Language selection — directly from the main menu
+                int new_lang = ask_language();
+                g_lang = new_lang;
+                save_config();
+                break;
+            }
+            case '6': do_settings(); break;
+            case '7': do_help(); break;
+            case '8':
             case 'q':
             case 'Q': {
                 printf("\n");
@@ -1620,13 +1637,13 @@ int interactive_main()
             default:
                 set_color(CLR_RED);
                 printf("\n  %s\n", tr(
-                    "Invalid option. Choose 1-7.",
-                    "Opcao invalida. Escolha 1-7.",
-                    "Opcion invalida. Elija 1-7.",
-                    "Ungultige Option. Wahlen Sie 1-7.",
-                    "Option invalide. Choisissez 1-7.",
-                    "\xe6\x97\xa0\xe6\x95\x88\xe9\x80\x89\xe9\xa1\xb9\xe3\x80\x82\xe8\xaf\xb7\xe9\x80\x89\xe6\x8b\xa9 1-7\xe3\x80\x82",
-                    "\xe7\x84\xa1\xe5\x8a\xb9\xe3\x81\xaa\xe3\x82\xaa\xe3\x83\x97\xe3\x82\xb7\xe3\x83\xa7\xe3\x83\xb3\xe3\x80\x82" "1-7\xe3\x82\x92\xe9\x81\xb8\xe6\x8a\x9e\xe3\x80\x82"));
+                    "Invalid option. Choose 1-8.",
+                    "Opcao invalida. Escolha 1-8.",
+                    "Opcion invalida. Elija 1-8.",
+                    "Ungultige Option. Wahlen Sie 1-8.",
+                    "Option invalide. Choisissez 1-8.",
+                    "\xe6\x97\xa0\xe6\x95\x88\xe9\x80\x89\xe9\xa1\xb9\xe3\x80\x82\xe8\xaf\xb7\xe9\x80\x89\xe6\x8b\xa9 1-8\xe3\x80\x82",
+                    "\xe7\x84\xa1\xe5\x8a\xb9\xe3\x81\xaa\xe3\x82\xaa\xe3\x83\x97\xe3\x82\xb7\xe3\x83\xa7\xe3\x83\xb3\xe3\x80\x82" "1-8\xe3\x82\x92\xe9\x81\xb8\xe6\x8a\x9e\xe3\x80\x82"));
                 reset_color();
                 break;
         }
