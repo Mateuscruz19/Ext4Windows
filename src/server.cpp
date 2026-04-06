@@ -358,24 +358,49 @@ static std::string dispatch_command(MountManager& manager,
     std::string action;
     iss >> action;
 
+    // MOUNT protocol: "MOUNT <drive_letter> [RW] <source_path>"
+    // The source path comes LAST because it may contain spaces
+    // (e.g. "C:\Users\Mateus Cruz\test.img"). Using getline to
+    // read the rest of the line captures the full path.
+    //
+    // This is like Python's str.split(maxsplit=N) — we split the
+    // first 2-3 tokens and keep the rest as one string.
     if (action == "MOUNT") {
-        std::string source;
         std::string drive_str;
-        std::string rw_flag;
-        iss >> source >> drive_str >> rw_flag;
+        std::string rw_or_path;
+        iss >> drive_str >> rw_or_path;
 
-        if (source.empty() || drive_str.empty())
-            return "ERROR Usage: MOUNT <source_path> <drive_letter> [RW]";
+        if (drive_str.empty() || rw_or_path.empty())
+            return "ERROR Usage: MOUNT <drive_letter> [RW] <source_path>";
 
         if (!is_valid_drive_letter(drive_str[0]))
             return "ERROR Invalid drive letter";
+
+        // Determine if second token is RW flag or start of path
+        bool read_write = false;
+        std::string source;
+        if (rw_or_path == "RW" || rw_or_path == "RO") {
+            read_write = (rw_or_path == "RW");
+            // Rest of line is the source path
+            std::getline(iss, source);
+            // Trim leading space left by getline after >>
+            if (!source.empty() && source[0] == ' ')
+                source = source.substr(1);
+        } else {
+            // No RW/RO flag — second token + rest of line is the path
+            std::string rest;
+            std::getline(iss, rest);
+            source = rw_or_path + rest;
+        }
+
+        if (source.empty())
+            return "ERROR Usage: MOUNT <drive_letter> [RW] <source_path>";
 
         if (path_contains_traversal(source))
             return "ERROR Path contains invalid sequences";
 
         wchar_t drive_letter = static_cast<wchar_t>(drive_str[0]);
         if (drive_letter >= L'a') drive_letter -= 32;
-        bool read_write = (rw_flag == "RW");
 
         // Convert source path to wide string
         int wlen = MultiByteToWideChar(CP_UTF8, 0, source.c_str(), -1,
@@ -524,6 +549,31 @@ static void pipe_server_thread(MountManager& manager)
 
 int run_server()
 {
+    // ── Prevent multiple server instances ────────────────────
+    // CreateMutexW creates a system-wide "named mutex" — a global
+    // lock identified by a string name. If another process already
+    // created a mutex with the same name, GetLastError() returns
+    // ERROR_ALREADY_EXISTS.
+    //
+    // Think of it like a lockfile in Python:
+    //   try:
+    //       lock = open("/tmp/ext4windows.lock", "x")  # exclusive
+    //   except FileExistsError:
+    //       sys.exit(0)  # another instance is running
+    //
+    // The "Local\\" prefix means it's per-session (per-user login).
+    // "Global\\" would be system-wide across all sessions.
+    //
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+    //       synchapi/nf-synchapi-createmutexw
+    HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"Local\\Ext4WindowsServer");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        // Another server is already running — exit silently.
+        if (hMutex) CloseHandle(hMutex);
+        dbg("Server already running, exiting");
+        return 0;
+    }
+
     // Detach from console (server runs in background)
     FreeConsole();
 
@@ -557,6 +607,18 @@ int run_server()
     }
 
     dbg("Server shutting down");
+
+    // Release the mutex so another server can start if needed.
+    // ReleaseMutex "unlocks" it, CloseHandle destroys our reference.
+    // When the process exits, Windows auto-releases it anyway, but
+    // being explicit is good practice.
+    //
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+    //       synchapi/nf-synchapi-releasemutex
+    if (hMutex) {
+        ReleaseMutex(hMutex);
+        CloseHandle(hMutex);
+    }
 
     if (g_debug_file) {
         fclose(g_debug_file);
