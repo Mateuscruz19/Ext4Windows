@@ -33,6 +33,10 @@ public:
     // Update the tray icon tooltip (e.g. after mount/unmount).
     void Update();
 
+    // Show a balloon (toast) notification above the tray icon.
+    // Public so the update checker thread can call it.
+    void ShowBalloon(const wchar_t* title, const wchar_t* message);
+
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg,
                                      WPARAM wParam, LPARAM lParam);
@@ -54,12 +58,13 @@ private:
     // Launch the interactive terminal (ext4windows.exe with no args)
     void LaunchInteractive();
 
-    // Show a balloon (toast) notification above the tray icon
-    void ShowBalloon(const wchar_t* title, const wchar_t* message);
+    // Open the server log file in the default text editor
+    void ViewLogs();
 
     static const UINT WM_TRAYICON = WM_APP + 1;
     static const UINT IDM_OPEN = 39999;
     static const UINT IDM_QUIT = 40000;
     static const UINT IDM_AUTOSTART = 40001;
+    static const UINT IDM_VIEWLOGS = 40002;
     static const UINT IDM_UNMOUNT_BASE = 41000;  // 41000 + index
 };

@@ -16,12 +16,15 @@
 
 #include "tray_icon.hpp"
 #include "server.hpp"
+#include "partition_scanner.hpp"
 #include "debug_log.hpp"
 
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <sstream>
+#include <thread>
+#include <dbt.h>
 
 // Window class name for our hidden message window
 static const wchar_t* TRAY_WND_CLASS = L"Ext4WindowsTrayClass";
@@ -42,11 +45,19 @@ TrayIcon::TrayIcon(MountManager& manager)
     wc.lpszClassName = TRAY_WND_CLASS;
     RegisterClassExW(&wc);
 
-    // Create a message-only window (invisible, just receives messages)
+    // Create a hidden window (not message-only!) to receive messages.
+    // We use a regular hidden window instead of HWND_MESSAGE because
+    // message-only windows don't receive broadcast messages like
+    // WM_DEVICECHANGE (needed for USB detection).
+    //
+    // The window is 0x0 pixels and never shown, so it's invisible.
+    //
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/winmsg/
+    //       window-features#message-only-windows
     hwnd_ = CreateWindowExW(
         0, TRAY_WND_CLASS, L"Ext4Windows Tray",
         0, 0, 0, 0, 0,
-        HWND_MESSAGE,   // Message-only window — no visible window
+        nullptr,        // Regular hidden window (receives WM_DEVICECHANGE)
         nullptr,
         GetModuleHandleW(nullptr),
         nullptr);
@@ -208,7 +219,9 @@ void TrayIcon::ShowContextMenu()
     bool autostart = IsAutoStartEnabled();
     AppendMenuW(menu, MF_STRING | (autostart ? MF_CHECKED : 0),
                 IDM_AUTOSTART, L"Start on login");
+    AppendMenuW(menu, MF_STRING, IDM_VIEWLOGS, L"View Logs");
 
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, IDM_QUIT, L"Quit");
 
     // Show the menu at the cursor position
@@ -263,6 +276,11 @@ LRESULT CALLBACK TrayIcon::WndProc(HWND hwnd, UINT msg,
             return 0;
         }
 
+        if (cmd_id == IDM_VIEWLOGS) {
+            g_tray_instance->ViewLogs();
+            return 0;
+        }
+
         // Unmount commands: IDM_UNMOUNT_BASE + index
         if (cmd_id >= IDM_UNMOUNT_BASE && cmd_id < IDM_UNMOUNT_BASE + 26) {
             UINT idx = cmd_id - IDM_UNMOUNT_BASE;
@@ -285,6 +303,47 @@ LRESULT CALLBACK TrayIcon::WndProc(HWND hwnd, UINT msg,
                 current++;
             }
             return 0;
+        }
+    }
+
+    // ── USB device detection ──────────────────────────────────
+    // WM_DEVICECHANGE is sent by Windows whenever a device is
+    // plugged in or removed. DBT_DEVICEARRIVAL means a new device
+    // was connected (e.g. USB drive plugged in).
+    //
+    // When we detect a new disk, we scan it for ext4 partitions
+    // in a background thread (scanning needs admin and takes time).
+    // If found, we show a toast notification.
+    //
+    // In Python, this would be like:
+    //   import win32api
+    //   win32api.RegisterWindowMessage("WM_DEVICECHANGE")
+    //   if msg == DBT_DEVICEARRIVAL and dev.dbch_devicetype == DBT_DEVTYP_VOLUME:
+    //       scan_for_ext4()
+    //
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/devio/
+    //       wm-devicechange
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/devio/
+    //       dbt-devicearrival
+    if (msg == WM_DEVICECHANGE && g_tray_instance) {
+        if (wParam == DBT_DEVICEARRIVAL) {
+            auto* hdr = reinterpret_cast<DEV_BROADCAST_HDR*>(lParam);
+            if (hdr && hdr->dbch_devicetype == DBT_DEVTYP_VOLUME) {
+                dbg("TrayIcon: USB device arrived, scanning for ext4...");
+                // Scan in background thread to avoid blocking the message loop
+                std::thread([]() {
+                    Sleep(2000);  // Give Windows time to initialize the device
+                    auto partitions = scan_ext4_partitions();
+                    if (!partitions.empty() && g_tray_instance) {
+                        wchar_t msg[128];
+                        swprintf_s(msg,
+                            L"Found %zu ext4 partition(s). Open Ext4Windows to mount.",
+                            partitions.size());
+                        g_tray_instance->ShowBalloon(
+                            L"Linux Drive Detected", msg);
+                    }
+                }).detach();
+            }
         }
     }
 
@@ -336,6 +395,42 @@ void TrayIcon::LaunchInteractive()
     } else {
         dbg("TrayIcon: failed to launch interactive (err=%lu)", GetLastError());
     }
+}
+
+// ── View Logs ───────────────────────────────────────────
+// Opens the server debug log in Notepad. The log file is at
+// %TEMP%\ext4windows_server.log (created when --debug is used).
+// If no log file exists, creates one with a helpful message.
+//
+// ShellExecuteW with "open" verb launches the default program
+// for .log files (usually Notepad).
+//
+// In Python: subprocess.Popen(["notepad", log_path])
+//
+// Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+//       shellapi/nf-shellapi-shellexecutew
+
+void TrayIcon::ViewLogs()
+{
+    wchar_t temp_path[MAX_PATH] = {};
+    GetTempPathW(MAX_PATH, temp_path);
+    std::wstring log_path = std::wstring(temp_path) + L"ext4windows_server.log";
+
+    // If log doesn't exist, create one with a tip
+    if (GetFileAttributesW(log_path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        FILE* f = _wfopen(log_path.c_str(), L"w");
+        if (f) {
+            fprintf(f, "No debug log yet.\n\n");
+            fprintf(f, "To enable debug logging, start the server with --debug:\n");
+            fprintf(f, "  ext4windows --debug mount <image>\n");
+            fprintf(f, "\nOr enable debug in Settings (option 6) in the interactive terminal.\n");
+            fclose(f);
+        }
+    }
+
+    ShellExecuteW(nullptr, L"open", log_path.c_str(),
+                  nullptr, nullptr, SW_SHOWNORMAL);
+    dbg("TrayIcon: opened log file");
 }
 
 // ── Auto-start on login ─────────────────────────────────
