@@ -591,6 +591,28 @@ static void OnWebMessageReceived(const std::wstring& message)
         return;
     }
 
+    // ── Settings: language ──
+    // JS sends: { command: "GUI_SET_LANGUAGE", value: 3 }
+    // The value is a bare number (not a string), so we find
+    // "value": and parse the digits after the colon.
+    if (cmd == L"GUI_SET_LANGUAGE") {
+        size_t vpos = message.find(L"\"value\"");
+        if (vpos != std::wstring::npos) {
+            vpos = message.find(L':', vpos);
+            if (vpos != std::wstring::npos) {
+                // Skip whitespace after colon
+                vpos++;
+                while (vpos < message.size() && message[vpos] == L' ') vpos++;
+                int v = 0;
+                if (vpos < message.size() && message[vpos] >= L'0' && message[vpos] <= L'9')
+                    v = message[vpos] - L'0';
+                if (v >= 0 && v <= 7)
+                    write_config_value("language", std::to_string(v));
+            }
+        }
+        return;
+    }
+
     // ── View logs ──
     if (cmd == L"GUI_VIEW_LOGS") {
         wchar_t temp[MAX_PATH] = {};
@@ -792,7 +814,26 @@ static void InitWebView(HWND hwnd)
                                         json += L",\"debug\":";
                                         json += (debug_val == "1") ? L"true" : L"false";
 
-                                        json += L"}}";
+                                        json += L"}";
+
+                                        // Language setting
+                                        std::string lang_val = read_config_value("language");
+                                        int lang = 0;
+                                        if (!lang_val.empty()) {
+                                            lang = std::stoi(lang_val);
+                                            if (lang < 0 || lang > 7) lang = 0;
+                                        }
+                                        json += L",\"language\":";
+                                        json += std::to_wstring(lang);
+
+                                        // Show language picker on first launch
+                                        // (no config file exists yet)
+                                        std::string cfg_path_check = read_config_value("language");
+                                        if (cfg_path_check.empty()) {
+                                            json += L",\"first_launch\":true";
+                                        }
+
+                                        json += L"}";
                                         post_to_js(json);
 
                                         return S_OK;

@@ -407,23 +407,91 @@ td {
     text-transform: uppercase;
     letter-spacing: 0.3px;
 }
+
+/* ═══ Language picker (first launch) ═══ */
+.lang-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+}
+.lang-overlay.show { display: flex; }
+.lang-box {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 32px;
+    min-width: 320px;
+    text-align: center;
+}
+.lang-box h3 {
+    color: var(--head);
+    font-size: 16px;
+    margin-bottom: 4px;
+}
+.lang-box p {
+    color: var(--text2);
+    font-size: 12px;
+    margin-bottom: 20px;
+}
+.lang-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.lang-grid button {
+    padding: 10px;
+    background: var(--input);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+    transition: all 0.1s;
+}
+.lang-grid button:hover {
+    background: var(--blue-bg);
+    border-color: var(--blue);
+    color: var(--head);
+}
 </style>
 </head>
 <body>
 
+<!-- Language picker overlay (shown on first launch) -->
+<div class="lang-overlay" id="lang-pick">
+    <div class="lang-box">
+        <h3>Language / Idioma</h3>
+        <p>Choose your language</p>
+        <div class="lang-grid">
+            <button onclick="pickLang(0)">English</button>
+            <button onclick="pickLang(1)">Portugu&#234;s</button>
+            <button onclick="pickLang(2)">Espa&#241;ol</button>
+            <button onclick="pickLang(3)">Deutsch</button>
+            <button onclick="pickLang(4)">Fran&#231;ais</button>
+            <button onclick="pickLang(5)">&#20013;&#25991;</button>
+            <button onclick="pickLang(6)">&#26085;&#26412;&#35486;</button>
+            <button onclick="pickLang(7)">&#1056;&#1091;&#1089;&#1089;&#1082;&#1080;&#1081;</button>
+        </div>
+    </div>
+</div>
+
 <nav class="side">
     <div class="logo">
         <h1>Ext4Windows</h1>
-        <span id="ver">v1.0.5</span>
+        <span id="ver">v1.1.0</span>
     </div>
     <div class="nav" style="display:flex;flex-direction:column;">
-        <a class="on" onclick="go('mount')" id="n-mount">Mount</a>
-        <a onclick="go('scan')" id="n-scan">Scan</a>
-        <a onclick="go('status')" id="n-status">Status</a>
+        <a class="on" onclick="go('mount')" id="n-mount" data-i="nav_mount">Mount</a>
+        <a onclick="go('scan')" id="n-scan" data-i="nav_scan">Scan</a>
+        <a onclick="go('status')" id="n-status" data-i="nav_status">Status</a>
         <div class="sep"></div>
-        <a onclick="go('settings')" id="n-settings">Settings</a>
+        <a onclick="go('settings')" id="n-settings" data-i="nav_settings">Settings</a>
         <div class="push"></div>
-        <a onclick="go('about')" id="n-about">About</a>
+        <a onclick="go('about')" id="n-about" data-i="nav_about">About</a>
     </div>
 </nav>
 
@@ -432,45 +500,45 @@ td {
     <!-- ═══ Mount ═══ -->
     <div class="page on" id="p-mount">
         <div class="ph">
-            <h2>Mount</h2>
-            <p>Mount an ext4 disk image as a Windows drive letter</p>
+            <h2 data-i="mount_title">Mount</h2>
+            <p data-i="mount_desc">Mount an ext4 disk image as a Windows drive letter</p>
         </div>
         <div class="pb">
             <div class="stats" id="quick-stats">
-                <div class="stat" style="cursor:pointer;" onclick="go('status')" title="View active mounts">
+                <div class="stat" style="cursor:pointer;" onclick="go('status')">
                     <div class="stat-val" id="qs-mounts">0</div>
-                    <div class="stat-lbl">Active mounts</div>
+                    <div class="stat-lbl" data-i="active_mounts">Active mounts</div>
                     <div id="qs-drives" style="font-size:12px;color:var(--text2);margin-top:4px;"></div>
                 </div>
                 <div class="stat">
                     <div class="stat-val" id="qs-free">--</div>
-                    <div class="stat-lbl">Free drives</div>
+                    <div class="stat-lbl" data-i="free_drives">Free drives</div>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-head">Image file</div>
+                <div class="card-head" data-i="image_file">Image file</div>
                 <div class="f">
-                    <label>Path</label>
+                    <label data-i="path">Path</label>
                     <div class="row">
-                        <input type="text" id="m-path" placeholder="Drag a file here or click Browse">
-                        <button class="btn btn-s" onclick="browse()">Browse</button>
+                        <input type="text" id="m-path" data-i-ph="browse_hint" placeholder="Drag a file here or click Browse">
+                        <button class="btn btn-s" onclick="browse()" data-i="browse">Browse</button>
                     </div>
                 </div>
                 <div class="row" style="gap: 20px;">
                     <div class="f" style="flex:0;">
-                        <label>Drive</label>
+                        <label data-i="drive">Drive</label>
                         <select id="m-drv"></select>
                     </div>
                     <div class="f" style="flex:1;">
-                        <label>Mode</label>
+                        <label data-i="mode">Mode</label>
                         <div class="radios">
-                            <label><input type="radio" name="m-mode" value="RW" checked> Read-write</label>
-                            <label><input type="radio" name="m-mode" value="RO"> Read-only</label>
+                            <label><input type="radio" name="m-mode" value="RW" checked> <span data-i="rw">Read-write</span></label>
+                            <label><input type="radio" name="m-mode" value="RO"> <span data-i="ro">Read-only</span></label>
                         </div>
                     </div>
                 </div>
-                <button class="btn btn-p" onclick="doMount()" id="btn-mount">Mount</button>
+                <button class="btn btn-p" onclick="doMount()" id="btn-mount" data-i="mount_btn">Mount</button>
             </div>
         </div>
     </div>
@@ -478,29 +546,29 @@ td {
     <!-- ═══ Scan ═══ -->
     <div class="page" id="p-scan">
         <div class="ph">
-            <h2>Scan</h2>
-            <p>Detect ext4 partitions on connected disks</p>
+            <h2 data-i="scan_title">Scan</h2>
+            <p data-i="scan_desc">Detect ext4 partitions on connected disks</p>
         </div>
         <div class="pb">
             <div class="card">
-                <p style="font-size: 12px; color: var(--text2); margin-bottom: 14px;">
+                <p style="font-size: 12px; color: var(--text2); margin-bottom: 14px;" data-i-html="scan_info">
                     This will scan all physical disks for ext4 partitions.<br>
                     A UAC prompt will appear to request administrator access.
                 </p>
                 <div class="row" style="gap: 20px; margin-bottom: 16px;">
                     <div class="f" style="flex:0; margin-bottom:0;">
-                        <label>Drive</label>
+                        <label data-i="drive">Drive</label>
                         <select id="sc-drv"></select>
                     </div>
                     <div class="f" style="flex:1; margin-bottom:0;">
-                        <label>Mode</label>
+                        <label data-i="mode">Mode</label>
                         <div class="radios">
-                            <label><input type="radio" name="sc-mode" value="RW" checked> Read-write</label>
-                            <label><input type="radio" name="sc-mode" value="RO"> Read-only</label>
+                            <label><input type="radio" name="sc-mode" value="RW" checked> <span data-i="rw">Read-write</span></label>
+                            <label><input type="radio" name="sc-mode" value="RO"> <span data-i="ro">Read-only</span></label>
                         </div>
                     </div>
                 </div>
-                <button class="btn btn-p" onclick="doScan()" id="btn-scan">Scan disks</button>
+                <button class="btn btn-p" onclick="doScan()" id="btn-scan" data-i="scan_btn">Scan disks</button>
             </div>
             <div id="scan-out"></div>
         </div>
@@ -509,43 +577,56 @@ td {
     <!-- ═══ Status ═══ -->
     <div class="page" id="p-status">
         <div class="ph">
-            <h2>Status</h2>
-            <p>Currently mounted ext4 drives</p>
+            <h2 data-i="status_title">Status</h2>
+            <p data-i="status_desc">Currently mounted ext4 drives</p>
         </div>
         <div class="pb">
             <div class="card" id="st-card">
-                <div class="empty" id="st-empty">No active mounts</div>
+                <div class="empty" id="st-empty" data-i="no_mounts">No active mounts</div>
                 <table id="st-tbl" style="display:none;">
-                    <thead><tr><th>Drive</th><th>Source</th><th>Mode</th><th style="width:90px;"></th></tr></thead>
+                    <thead><tr><th data-i="drive">Drive</th><th data-i="source">Source</th><th data-i="mode">Mode</th><th style="width:90px;"></th></tr></thead>
                     <tbody id="st-body"></tbody>
                 </table>
             </div>
-            <button class="btn btn-s btn-sm" onclick="refreshStatus()">Refresh</button>
+            <button class="btn btn-s btn-sm" onclick="refreshStatus()" data-i="refresh">Refresh</button>
         </div>
     </div>
 
     <!-- ═══ Settings ═══ -->
     <div class="page" id="p-settings">
         <div class="ph">
-            <h2>Settings</h2>
+            <h2 data-i="nav_settings">Settings</h2>
         </div>
         <div class="pb">
             <div class="card">
                 <div class="sr">
-                    <div><div class="sr-t">Start on login</div><div class="sr-d">Launch the background server when Windows starts</div></div>
+                    <div><div class="sr-t" data-i="s_lang">Language</div><div class="sr-d" data-i="s_lang_d">Interface language</div></div>
+                    <select id="s-lang" onchange="setLang()" style="min-width:130px;">
+                        <option value="0">English</option>
+                        <option value="1">Portugu&#234;s</option>
+                        <option value="2">Espa&#241;ol</option>
+                        <option value="3">Deutsch</option>
+                        <option value="4">Fran&#231;ais</option>
+                        <option value="5">&#20013;&#25991;</option>
+                        <option value="6">&#26085;&#26412;&#35486;</option>
+                        <option value="7">&#1056;&#1091;&#1089;&#1089;&#1082;&#1080;&#1081;</option>
+                    </select>
+                </div>
+                <div class="sr">
+                    <div><div class="sr-t" data-i="s_autostart">Start on login</div><div class="sr-d" data-i="s_autostart_d">Launch the background server when Windows starts</div></div>
                     <label class="tog"><input type="checkbox" id="s-auto" onchange="setAuto()"><span class="tog-s"></span></label>
                 </div>
                 <div class="sr">
-                    <div><div class="sr-t">Default access mode</div><div class="sr-d">Applied when mounting new drives</div></div>
-                    <select id="s-mode" onchange="setMode()"><option value="RW">Read-write</option><option value="RO">Read-only</option></select>
+                    <div><div class="sr-t" data-i="s_mode">Default access mode</div><div class="sr-d" data-i="s_mode_d">Applied when mounting new drives</div></div>
+                    <select id="s-mode" onchange="setMode()"><option value="RW" data-i="rw">Read-write</option><option value="RO" data-i="ro">Read-only</option></select>
                 </div>
                 <div class="sr">
-                    <div><div class="sr-t">Debug logging</div><div class="sr-d">Write detailed logs to the temp folder</div></div>
+                    <div><div class="sr-t" data-i="s_debug">Debug logging</div><div class="sr-d" data-i="s_debug_d">Write detailed logs to the temp folder</div></div>
                     <label class="tog"><input type="checkbox" id="s-dbg" onchange="setDbg()"><span class="tog-s"></span></label>
                 </div>
                 <div class="sr">
-                    <div><div class="sr-t">Server log</div><div class="sr-d">Open the log file in your default text editor</div></div>
-                    <button class="btn btn-s btn-sm" onclick="viewLogs()">View logs</button>
+                    <div><div class="sr-t" data-i="s_log">Server log</div><div class="sr-d" data-i="s_log_d">Open the log file in your default text editor</div></div>
+                    <button class="btn btn-s btn-sm" onclick="viewLogs()" data-i="view_logs">View logs</button>
                 </div>
             </div>
         </div>
@@ -554,13 +635,13 @@ td {
     <!-- ═══ About ═══ -->
     <div class="page" id="p-about">
         <div class="ph">
-            <h2>About</h2>
+            <h2 data-i="nav_about">About</h2>
         </div>
         <div class="pb">
             <div class="card" style="padding: 32px 24px;">
                 <div style="font-size: 18px; font-weight: 600; color: var(--head);">Ext4Windows</div>
-                <div style="font-size: 12px; color: var(--text3); margin-top: 4px;" id="about-ver">Version 1.0.5</div>
-                <p style="margin-top: 16px; color: var(--text2); font-size: 13px; line-height: 1.6;">
+                <div style="font-size: 12px; color: var(--text3); margin-top: 4px;" id="about-ver">Version 1.1.0</div>
+                <p style="margin-top: 16px; color: var(--text2); font-size: 13px; line-height: 1.6;" data-i-html="about_text">
                     Mount ext4 Linux filesystems as native Windows drive letters.<br>
                     Built with WinFsp, lwext4, and WebView2.
                 </p>
@@ -568,7 +649,7 @@ td {
                     Copyright 2026 Mateus Cruz &middot; Licensed under GPL v2
                 </div>
                 <div style="margin-top: 12px;">
-                    <button class="btn btn-s btn-sm" onclick="openGH()">View on GitHub</button>
+                    <button class="btn btn-s btn-sm" onclick="openGH()" data-i="view_github">View on GitHub</button>
                 </div>
             </div>
         </div>
@@ -576,13 +657,107 @@ td {
 </main>
 
 <div class="bar">
-    <span><span class="dot" id="sv-dot"></span><span id="sv-st">Server running</span></span>
+    <span><span class="dot" id="sv-dot"></span><span id="sv-st" data-i="srv_on">Server running</span></span>
     <span id="mc">0 mounts</span>
 </div>
 
 <div id="toast" class="toast"></div>
 
 <script>
+/* ═══ i18n ═══ */
+var L = 0; /* 0=EN 1=PT 2=ES 3=DE 4=FR 5=ZH 6=JA 7=RU */
+var T = {
+    nav_mount:    ["Mount","Montar","Montar","Einh\u00e4ngen","Monter","\u6302\u8f7d","\u30de\u30a6\u30f3\u30c8","\u041c\u043e\u043d\u0442\u0438\u0440."],
+    nav_scan:     ["Scan","Escanear","Escanear","Scannen","Analyser","\u626b\u63cf","\u30b9\u30ad\u30e3\u30f3","\u0421\u043a\u0430\u043d."],
+    nav_status:   ["Status","Status","Estado","Status","Statut","\u72b6\u6001","\u30b9\u30c6\u30fc\u30bf\u30b9","\u0421\u0442\u0430\u0442\u0443\u0441"],
+    nav_settings: ["Settings","Configura\u00e7\u00f5es","Ajustes","Einstellungen","Param\u00e8tres","\u8bbe\u7f6e","\u8a2d\u5b9a","\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438"],
+    nav_about:    ["About","Sobre","Acerca","Info","\u00c0 propos","\u5173\u4e8e","\u60c5\u5831","\u041e \u043f\u0440\u043e\u0433\u0440."],
+
+    mount_title:  ["Mount","Montar","Montar","Einh\u00e4ngen","Monter","\u6302\u8f7d","\u30de\u30a6\u30f3\u30c8","\u041c\u043e\u043d\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c"],
+    mount_desc:   ["Mount an ext4 disk image as a Windows drive letter","Montar uma imagem ext4 como letra de unidade do Windows","Montar una imagen ext4 como letra de unidad de Windows","Ein ext4-Image als Windows-Laufwerk einh\u00e4ngen","Monter une image ext4 comme lettre de lecteur Windows","\u5c06ext4\u78c1\u76d8\u6620\u50cf\u6302\u8f7d\u4e3aWindows\u9a71\u52a8\u5668\u53f7","\u30a4\u30e1\u30fc\u30b8\u3092Windows\u30c9\u30e9\u30a4\u30d6\u3068\u3057\u3066\u30de\u30a6\u30f3\u30c8","\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043e\u0431\u0440\u0430\u0437 ext4 \u043a\u0430\u043a \u0434\u0438\u0441\u043a Windows"],
+    active_mounts:["Active mounts","Montagens ativas","Montajes activos","Aktive Mounts","Montages actifs","\u6d3b\u52a8\u6302\u8f7d","\u30a2\u30af\u30c6\u30a3\u30d6","\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435"],
+    free_drives:  ["Free drives","Unidades livres","Unidades libres","Freie Laufwerke","Lecteurs libres","\u53ef\u7528\u9a71\u52a8\u5668","\u7a7a\u304d\u30c9\u30e9\u30a4\u30d6","\u0421\u0432\u043e\u0431\u043e\u0434\u043d\u044b\u0435"],
+    image_file:   ["Image file","Arquivo de imagem","Archivo de imagen","Image-Datei","Fichier image","\u955c\u50cf\u6587\u4ef6","\u30a4\u30e1\u30fc\u30b8","\u0424\u0430\u0439\u043b \u043e\u0431\u0440\u0430\u0437\u0430"],
+    path:         ["Path","Caminho","Ruta","Pfad","Chemin","\u8def\u5f84","\u30d1\u30b9","\u041f\u0443\u0442\u044c"],
+    browse_hint:  ["Drag a file here or click Browse","Arraste um arquivo ou clique em Procurar","Arrastra un archivo o haz clic en Examinar","Datei hierher ziehen oder Durchsuchen klicken","Glissez un fichier ou cliquez sur Parcourir","\u62d6\u653e\u6587\u4ef6\u6216\u70b9\u51fb\u6d4f\u89c8","\u30d5\u30a1\u30a4\u30eb\u3092\u30c9\u30e9\u30c3\u30b0\u307e\u305f\u306f\u53c2\u7167","\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u0435 \u0444\u0430\u0439\u043b \u0438\u043b\u0438 \u041e\u0431\u0437\u043e\u0440"],
+    browse:       ["Browse","Procurar","Examinar","Durchsuchen","Parcourir","\u6d4f\u89c8","\u53c2\u7167","\u041e\u0431\u0437\u043e\u0440"],
+    drive:        ["Drive","Unidade","Unidad","Laufwerk","Lecteur","\u9a71\u52a8\u5668","\u30c9\u30e9\u30a4\u30d6","\u0414\u0438\u0441\u043a"],
+    mode:         ["Mode","Modo","Modo","Modus","Mode","\u6a21\u5f0f","\u30e2\u30fc\u30c9","\u0420\u0435\u0436\u0438\u043c"],
+    rw:           ["Read-write","Leitura-escrita","Lectura-escritura","Lesen-Schreiben","Lecture-\u00e9criture","\u8bfb\u5199","\u8aad\u307f\u66f8\u304d","\u0427\u0442\u0435\u043d\u0438\u0435-\u0437\u0430\u043f\u0438\u0441\u044c"],
+    ro:           ["Read-only","Somente leitura","Solo lectura","Nur Lesen","Lecture seule","\u53ea\u8bfb","\u8aad\u307f\u53d6\u308a\u5c02\u7528","\u0422\u043e\u043b\u044c\u043a\u043e \u0447\u0442\u0435\u043d\u0438\u0435"],
+    mount_btn:    ["Mount","Montar","Montar","Einh\u00e4ngen","Monter","\u6302\u8f7d","\u30de\u30a6\u30f3\u30c8","\u041c\u043e\u043d\u0442\u0438\u0440."],
+    unmount_btn:  ["Unmount","Desmontar","Desmontar","Aush\u00e4ngen","D\u00e9monter","\u5378\u8f7d","\u30a2\u30f3\u30de\u30a6\u30f3\u30c8","\u041e\u0442\u043a\u043b."],
+    mounting:     ["Mounting","Montando","Montando","Wird eingeh\u00e4ngt","Montage","\u6302\u8f7d\u4e2d","\u30de\u30a6\u30f3\u30c8\u4e2d","\u041c\u043e\u043d\u0442\u0438\u0440\u043e\u0432\u043a\u0430"],
+
+    scan_title:   ["Scan","Escanear","Escanear","Scannen","Analyser","\u626b\u63cf","\u30b9\u30ad\u30e3\u30f3","\u0421\u043a\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435"],
+    scan_desc:    ["Detect ext4 partitions on connected disks","Detectar parti\u00e7\u00f5es ext4 nos discos conectados","Detectar particiones ext4 en discos conectados","ext4-Partitionen auf verbundenen Festplatten erkennen","D\u00e9tecter les partitions ext4 sur les disques connect\u00e9s","\u68c0\u6d4b\u8fde\u63a5\u78c1\u76d8\u4e0a\u7684ext4\u5206\u533a","\u63a5\u7d9a\u30c7\u30a3\u30b9\u30af\u306eext4\u30d1\u30fc\u30c6\u30a3\u30b7\u30e7\u30f3\u3092\u691c\u51fa","\u041e\u0431\u043d\u0430\u0440\u0443\u0436\u0438\u0442\u044c \u0440\u0430\u0437\u0434\u0435\u043b\u044b ext4"],
+    scan_info:    ["This will scan all physical disks for ext4 partitions.<br>A UAC prompt will appear to request administrator access.","Isso vai escanear todos os discos f\u00edsicos por parti\u00e7\u00f5es ext4.<br>Um prompt UAC aparecer\u00e1 para solicitar acesso de administrador.","Esto escanear\u00e1 todos los discos f\u00edsicos en busca de particiones ext4.<br>Aparecer\u00e1 un aviso UAC para solicitar acceso de administrador.","Dies scannt alle physischen Festplatten nach ext4-Partitionen.<br>Eine UAC-Abfrage erscheint f\u00fcr Administratorzugriff.","Ceci analysera tous les disques physiques pour trouver des partitions ext4.<br>Une invite UAC appara\u00eetra pour demander un acc\u00e8s administrateur.","\u8fd9\u5c06\u626b\u63cf\u6240\u6709\u7269\u7406\u78c1\u76d8\u4ee5\u67e5\u627eext4\u5206\u533a\u3002<br>\u5c06\u51fa\u73b0UAC\u63d0\u793a\u8bf7\u6c42\u7ba1\u7406\u5458\u8bbf\u95ee\u3002","\u3059\u3079\u3066\u306e\u7269\u7406\u30c7\u30a3\u30b9\u30af\u3092\u30b9\u30ad\u30e3\u30f3\u3057\u3066ext4\u30d1\u30fc\u30c6\u30a3\u30b7\u30e7\u30f3\u3092\u691c\u51fa\u3057\u307e\u3059\u3002<br>UAC\u30d7\u30ed\u30f3\u30d7\u30c8\u304c\u8868\u793a\u3055\u308c\u307e\u3059\u3002","\u0421\u043a\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u0432\u0441\u0435\u0445 \u0434\u0438\u0441\u043a\u043e\u0432 \u043d\u0430 \u043d\u0430\u043b\u0438\u0447\u0438\u0435 \u0440\u0430\u0437\u0434\u0435\u043b\u043e\u0432 ext4.<br>\u041f\u043e\u044f\u0432\u0438\u0442\u0441\u044f \u0437\u0430\u043f\u0440\u043e\u0441 UAC."],
+    scan_btn:     ["Scan disks","Escanear discos","Escanear discos","Festplatten scannen","Analyser les disques","\u626b\u63cf\u78c1\u76d8","\u30c7\u30a3\u30b9\u30af\u30b9\u30ad\u30e3\u30f3","\u0421\u043a\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c"],
+    scanning:     ["Scanning","Escaneando","Escaneando","Scanne","Analyse","\u626b\u63cf\u4e2d","\u30b9\u30ad\u30e3\u30f3\u4e2d","\u0421\u043a\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435"],
+    no_partitions:["No ext4 partitions found.<br>Make sure your Linux disk is connected.","Nenhuma parti\u00e7\u00e3o ext4 encontrada.<br>Certifique-se de que seu disco Linux est\u00e1 conectado.","No se encontraron particiones ext4.<br>Aseg\u00farese de que su disco Linux est\u00e9 conectado.","Keine ext4-Partitionen gefunden.<br>Stellen Sie sicher, dass Ihre Linux-Festplatte verbunden ist.","Aucune partition ext4 trouv\u00e9e.<br>V\u00e9rifiez que votre disque Linux est connect\u00e9.","\u672a\u627e\u5230ext4\u5206\u533a\u3002<br>\u8bf7\u786e\u4fddLinux\u78c1\u76d8\u5df2\u8fde\u63a5\u3002","\u30d1\u30fc\u30c6\u30a3\u30b7\u30e7\u30f3\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002<br>Linux\u30c7\u30a3\u30b9\u30af\u3092\u63a5\u7d9a\u3057\u3066\u304f\u3060\u3055\u3044\u3002","\u0420\u0430\u0437\u0434\u0435\u043b\u044b ext4 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u044b.<br>\u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435 \u0434\u0438\u0441\u043a\u0430."],
+    parts_found:  ["partition(s) found","parti\u00e7\u00e3o(\u00f5es) encontrada(s)","partici\u00f3n(es) encontrada(s)","Partition(en) gefunden","partition(s) trouv\u00e9e(s)","\u4e2a\u5206\u533a\u5df2\u627e\u5230","\u30d1\u30fc\u30c6\u30a3\u30b7\u30e7\u30f3\u304c\u898b\u3064\u304b\u308a\u307e\u3057\u305f","\u0440\u0430\u0437\u0434\u0435\u043b(\u043e\u0432) \u043d\u0430\u0439\u0434\u0435\u043d\u043e"],
+
+    status_title: ["Status","Status","Estado","Status","Statut","\u72b6\u6001","\u30b9\u30c6\u30fc\u30bf\u30b9","\u0421\u0442\u0430\u0442\u0443\u0441"],
+    status_desc:  ["Currently mounted ext4 drives","Unidades ext4 montadas atualmente","Unidades ext4 montadas actualmente","Aktuell eingeh\u00e4ngte ext4-Laufwerke","Lecteurs ext4 actuellement mont\u00e9s","\u5f53\u524d\u6302\u8f7d\u7684ext4\u9a71\u52a8\u5668","\u73fe\u5728\u30de\u30a6\u30f3\u30c8\u3055\u308c\u3066\u3044\u308b\u30c9\u30e9\u30a4\u30d6","\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u043d\u044b\u0435 \u0434\u0438\u0441\u043a\u0438"],
+    no_mounts:    ["No active mounts","Nenhuma montagem ativa","Sin montajes activos","Keine aktiven Mounts","Aucun montage actif","\u6ca1\u6709\u6d3b\u52a8\u6302\u8f7d","\u30a2\u30af\u30c6\u30a3\u30d6\u306a\u30de\u30a6\u30f3\u30c8\u306a\u3057","\u041d\u0435\u0442 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0445"],
+    source:       ["Source","Origem","Origen","Quelle","Source","\u6765\u6e90","\u30bd\u30fc\u30b9","\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a"],
+    refresh:      ["Refresh","Atualizar","Actualizar","Aktualisieren","Rafra\u00eechir","\u5237\u65b0","\u66f4\u65b0","\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c"],
+
+    s_lang:       ["Language","Idioma","Idioma","Sprache","Langue","\u8bed\u8a00","\u8a00\u8a9e","\u042f\u0437\u044b\u043a"],
+    s_lang_d:     ["Interface language","Idioma da interface","Idioma de la interfaz","Sprache der Oberfl\u00e4che","Langue de l'interface","\u754c\u9762\u8bed\u8a00","\u30a4\u30f3\u30bf\u30fc\u30d5\u30a7\u30fc\u30b9\u8a00\u8a9e","\u042f\u0437\u044b\u043a \u0438\u043d\u0442\u0435\u0440\u0444\u0435\u0439\u0441\u0430"],
+    s_autostart:  ["Start on login","Iniciar no login","Iniciar al iniciar sesi\u00f3n","Beim Anmelden starten","D\u00e9marrer \u00e0 la connexion","\u767b\u5f55\u65f6\u542f\u52a8","\u30ed\u30b0\u30a4\u30f3\u6642\u306b\u958b\u59cb","\u0417\u0430\u043f\u0443\u0441\u043a \u043f\u0440\u0438 \u0432\u0445\u043e\u0434\u0435"],
+    s_autostart_d:["Launch the background server when Windows starts","Iniciar o servidor ao iniciar o Windows","Iniciar el servidor al iniciar Windows","Server beim Windows-Start automatisch starten","Lancer le serveur au d\u00e9marrage de Windows","\u542f\u52a8Windows\u65f6\u81ea\u52a8\u542f\u52a8\u670d\u52a1\u5668","\u30b5\u30fc\u30d0\u30fc\u3092\u81ea\u52d5\u8d77\u52d5","\u0417\u0430\u043f\u0443\u0441\u043a \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u043f\u0440\u0438 \u0441\u0442\u0430\u0440\u0442\u0435 Windows"],
+    s_mode:       ["Default access mode","Modo de acesso padr\u00e3o","Modo de acceso predeterminado","Standard-Zugriffsmodus","Mode d'acc\u00e8s par d\u00e9faut","\u9ed8\u8ba4\u8bbf\u95ee\u6a21\u5f0f","\u30c7\u30d5\u30a9\u30eb\u30c8\u30a2\u30af\u30bb\u30b9\u30e2\u30fc\u30c9","\u0420\u0435\u0436\u0438\u043c \u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e"],
+    s_mode_d:     ["Applied when mounting new drives","Aplicado ao montar novas unidades","Aplicado al montar nuevas unidades","Wird beim Einh\u00e4ngen neuer Laufwerke angewendet","Appliqu\u00e9 lors du montage de nouveaux lecteurs","\u6302\u8f7d\u65b0\u9a71\u52a8\u5668\u65f6\u5e94\u7528","\u65b0\u898f\u30de\u30a6\u30f3\u30c8\u6642\u306b\u9069\u7528","\u041f\u0440\u0438\u043c\u0435\u043d\u044f\u0435\u0442\u0441\u044f \u043f\u0440\u0438 \u043c\u043e\u043d\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0438"],
+    s_debug:      ["Debug logging","Log de depura\u00e7\u00e3o","Registro de depuraci\u00f3n","Debug-Protokollierung","Journalisation de d\u00e9bogage","\u8c03\u8bd5\u65e5\u5fd7","\u30c7\u30d0\u30c3\u30b0\u30ed\u30b0","\u041e\u0442\u043b\u0430\u0434\u043e\u0447\u043d\u044b\u0435 \u043b\u043e\u0433\u0438"],
+    s_debug_d:    ["Write detailed logs to the temp folder","Escrever logs detalhados na pasta temp","Escribir registros detallados en la carpeta temporal","Detaillierte Protokolle im Temp-Ordner schreiben","Enregistrer les journaux d\u00e9taill\u00e9s dans le dossier temporaire","\u5c06\u8be6\u7ec6\u65e5\u5fd7\u5199\u5165\u4e34\u65f6\u6587\u4ef6\u5939","\u4e00\u6642\u30d5\u30a9\u30eb\u30c0\u30fc\u306b\u30ed\u30b0\u3092\u8a18\u9332","\u0417\u0430\u043f\u0438\u0441\u044c \u043b\u043e\u0433\u043e\u0432 \u0432\u043e \u0432\u0440\u0435\u043c. \u043f\u0430\u043f\u043a\u0443"],
+    s_log:        ["Server log","Log do servidor","Registro del servidor","Server-Protokoll","Journal du serveur","\u670d\u52a1\u5668\u65e5\u5fd7","\u30b5\u30fc\u30d0\u30fc\u30ed\u30b0","\u0416\u0443\u0440\u043d\u0430\u043b \u0441\u0435\u0440\u0432\u0435\u0440\u0430"],
+    s_log_d:      ["Open the log file in your default text editor","Abrir o arquivo de log no editor de texto padr\u00e3o","Abrir el archivo de registro en su editor de texto","Protokolldatei im Standard-Texteditor \u00f6ffnen","Ouvrir le fichier journal dans votre \u00e9diteur de texte","\u5728\u9ed8\u8ba4\u7f16\u8f91\u5668\u4e2d\u6253\u5f00\u65e5\u5fd7\u6587\u4ef6","\u30c7\u30d5\u30a9\u30eb\u30c8\u30a8\u30c7\u30a3\u30bf\u3067\u958b\u304f","\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0432 \u0442\u0435\u043a\u0441\u0442\u043e\u0432\u043e\u043c \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440\u0435"],
+    view_logs:    ["View logs","Ver logs","Ver registros","Protokolle anzeigen","Voir les journaux","\u67e5\u770b\u65e5\u5fd7","\u30ed\u30b0\u3092\u898b\u308b","\u041f\u043e\u0441\u043c\u043e\u0442\u0440\u0435\u0442\u044c"],
+    view_github:  ["View on GitHub","Ver no GitHub","Ver en GitHub","Auf GitHub anzeigen","Voir sur GitHub","\u5728GitHub\u4e0a\u67e5\u770b","GitHub\u3067\u898b\u308b","\u041d\u0430 GitHub"],
+
+    about_text:   ["Mount ext4 Linux filesystems as native Windows drive letters.<br>Built with WinFsp, lwext4, and WebView2.","Monte sistemas de arquivos ext4 do Linux como letras de unidade nativas do Windows.<br>Constru\u00eddo com WinFsp, lwext4 e WebView2.","Monte sistemas de archivos ext4 de Linux como letras de unidad nativas de Windows.<br>Construido con WinFsp, lwext4 y WebView2.","Mounten Sie ext4-Linux-Dateisysteme als native Windows-Laufwerksbuchstaben.<br>Erstellt mit WinFsp, lwext4 und WebView2.","Montez des syst\u00e8mes de fichiers ext4 Linux comme lettres de lecteur Windows natives.<br>Cr\u00e9\u00e9 avec WinFsp, lwext4 et WebView2.","\u5c06ext4 Linux\u6587\u4ef6\u7cfb\u7edf\u6302\u8f7d\u4e3aWindows\u9a71\u52a8\u5668\u53f7\u3002<br>\u4f7f\u7528WinFsp\u3001lwext4\u548cWebView2\u6784\u5efa\u3002","ext4 Linux\u30d5\u30a1\u30a4\u30eb\u30b7\u30b9\u30c6\u30e0\u3092Windows\u30c9\u30e9\u30a4\u30d6\u3068\u3057\u3066\u30de\u30a6\u30f3\u30c8\u3002<br>WinFsp\u3001lwext4\u3001WebView2\u3067\u69cb\u7bc9\u3002","\u041c\u043e\u043d\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435 \u0444\u0430\u0439\u043b\u043e\u0432\u044b\u0445 \u0441\u0438\u0441\u0442\u0435\u043c ext4 Linux \u043a\u0430\u043a \u0434\u0438\u0441\u043a\u043e\u0432 Windows.<br>\u0421\u043e\u0437\u0434\u0430\u043d\u043e \u0441 WinFsp, lwext4 \u0438 WebView2."],
+
+    srv_on:       ["Server running","Servidor rodando","Servidor ejecut\u00e1ndose","Server l\u00e4uft","Serveur en cours","\u670d\u52a1\u5668\u8fd0\u884c\u4e2d","\u30b5\u30fc\u30d0\u30fc\u7a3c\u50cd\u4e2d","\u0421\u0435\u0440\u0432\u0435\u0440 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442"],
+    srv_off:      ["Server offline \u2014 reconnecting...","Servidor offline \u2014 reconectando...","Servidor fuera de l\u00ednea \u2014 reconectando...","Server offline \u2014 Verbindung wird wiederhergestellt...","Serveur hors ligne \u2014 reconnexion....","\u670d\u52a1\u5668\u79bb\u7ebf \u2014 \u91cd\u65b0\u8fde\u63a5\u4e2d...","\u30b5\u30fc\u30d0\u30fc\u30aa\u30d5\u30e9\u30a4\u30f3 \u2014 \u518d\u63a5\u7d9a\u4e2d...","\u0421\u0435\u0440\u0432\u0435\u0440 \u043e\u0444\u043b\u0430\u0439\u043d \u2014 \u043f\u0435\u0440\u0435\u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435..."],
+    select_file:  ["Select an image file first","Selecione um arquivo de imagem primeiro","Seleccione un archivo de imagen primero","W\u00e4hlen Sie zuerst eine Image-Datei aus","S\u00e9lectionnez d'abord un fichier image","\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u955c\u50cf\u6587\u4ef6","\u5148\u306b\u30a4\u30e1\u30fc\u30b8\u30d5\u30a1\u30a4\u30eb\u3092\u9078\u629e","\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043e\u0431\u0440\u0430\u0437"],
+    mounted_on:   ["Mounted on","Montado em","Montado en","Eingeh\u00e4ngt auf","Mont\u00e9 sur","\u5df2\u6302\u8f7d\u5230","\u30de\u30a6\u30f3\u30c8\u5148","\u041f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u043e \u043a"],
+    unmounted:    ["Unmounted","Desmontado","Desmontado","Ausgeh\u00e4ngt","D\u00e9mont\u00e9","\u5df2\u5378\u8f7d","\u30a2\u30f3\u30de\u30a6\u30f3\u30c8\u6e08\u307f","\u041e\u0442\u043a\u043b\u044e\u0447\u0435\u043d\u043e"]
+};
+
+function tr(k) { return (T[k] && T[k][L]) || (T[k] && T[k][0]) || k; }
+
+function applyLang() {
+    document.querySelectorAll('[data-i]').forEach(function(el) {
+        el.textContent = tr(el.getAttribute('data-i'));
+    });
+    document.querySelectorAll('[data-i-html]').forEach(function(el) {
+        el.innerHTML = tr(el.getAttribute('data-i-html'));
+    });
+    document.querySelectorAll('[data-i-ph]').forEach(function(el) {
+        el.placeholder = tr(el.getAttribute('data-i-ph'));
+    });
+    document.getElementById('s-lang').value = L;
+
+    /* Update mode dropdown options */
+    var sm = document.getElementById('s-mode');
+    sm.options[0].textContent = tr('rw');
+    sm.options[1].textContent = tr('ro');
+}
+
+function pickLang(n) {
+    L = n;
+    document.getElementById('lang-pick').classList.remove('show');
+    applyLang();
+    window.chrome.webview.postMessage({ command: 'GUI_SET_LANGUAGE', value: n });
+}
+
+function setLang() {
+    L = parseInt(document.getElementById('s-lang').value);
+    applyLang();
+    window.chrome.webview.postMessage({ command: 'GUI_SET_LANGUAGE', value: L });
+}
+
 /* ═══ Nav ═══ */
 function go(p) {
     document.querySelectorAll('.page').forEach(function(e) { e.classList.remove('on'); });
@@ -616,10 +791,10 @@ window.chrome.webview.addEventListener('message', function(e) {
         var st = document.getElementById('sv-st');
         if (d.running) {
             dot.style.background = 'var(--green)';
-            st.textContent = 'Server running';
+            st.textContent = tr('srv_on');
         } else {
             dot.style.background = 'var(--red)';
-            st.textContent = 'Server offline — reconnecting...';
+            st.textContent = tr('srv_off');
         }
     }
     if (d.type === 'init') {
@@ -632,6 +807,13 @@ window.chrome.webview.addEventListener('message', function(e) {
             document.getElementById('qs-free').textContent = d.drives.length;
         }
         if (d.config) applyCfg(d.config);
+        if (d.language !== undefined) {
+            L = d.language;
+            applyLang();
+        }
+        if (d.first_launch) {
+            document.getElementById('lang-pick').classList.add('show');
+        }
     }
     if (d.type === 'file_selected') document.getElementById('m-path').value = d.path;
     if (d.type === 'scan_results') showScan(d.partitions);
@@ -654,15 +836,15 @@ function fillDrv(list) {
 /* ═══ Mount ═══ */
 function doMount() {
     var path = document.getElementById('m-path').value.trim();
-    if (!path) { toast('Select an image file first', 'err'); return; }
+    if (!path) { toast(tr('select_file'), 'err'); return; }
     var drv = document.getElementById('m-drv').value;
     var mode = document.querySelector('input[name="m-mode"]:checked').value;
     var b = document.getElementById('btn-mount');
-    b.disabled = true; b.innerHTML = '<span class="spin"></span> Mounting';
+    b.disabled = true; b.innerHTML = '<span class="spin"></span> ' + tr('mounting');
     cmd('MOUNT ' + drv + ' ' + mode + ' ' + path, function(r) {
-        b.disabled = false; b.textContent = 'Mount';
+        b.disabled = false; b.textContent = tr('mount_btn');
         if (r.startsWith('OK')) {
-            toast('Mounted on ' + drv + ':', 'ok');
+            toast(tr('mounted_on') + ' ' + drv + ':', 'ok');
             document.getElementById('m-path').value = '';
             refreshStatus(); refreshDrv();
         } else { toast(r.replace('ERROR ', ''), 'err'); }
@@ -671,7 +853,7 @@ function doMount() {
 
 function doUnmount(l) {
     cmd('UNMOUNT ' + l, function(r) {
-        if (r.startsWith('OK')) { toast('Unmounted ' + l + ':', 'ok'); refreshStatus(); refreshDrv(); }
+        if (r.startsWith('OK')) { toast(tr('unmounted') + ' ' + l + ':', 'ok'); refreshStatus(); refreshDrv(); }
         else { toast(r.replace('ERROR ', ''), 'err'); }
     });
 }
@@ -688,12 +870,12 @@ function refreshStatus() {
         document.getElementById('st-tbl').style.display = mts.length ? 'table' : 'none';
         document.getElementById('st-empty').style.display = mts.length ? 'none' : 'block';
         mts.forEach(function(x) {
-            var tr = document.createElement('tr');
-            tr.innerHTML = '<td><a href="#" onclick="openDrive(\'' + x.d + '\');return false;" style="color:var(--blue);text-decoration:none;font-weight:600;cursor:pointer;">' + x.d + ':</a></td><td>' + esc(x.s) +
+            var tr_el = document.createElement('tr');
+            tr_el.innerHTML = '<td><a href="#" onclick="openDrive(\'' + x.d + '\');return false;" style="color:var(--blue);text-decoration:none;font-weight:600;cursor:pointer;">' + x.d + ':</a></td><td>' + esc(x.s) +
                 '</td><td><span class="tag tag-' + x.m.toLowerCase() + '">' +
-                (x.m === 'RW' ? 'Read-write' : 'Read-only') +
-                '</span></td><td><button class="btn btn-d btn-sm" onclick="doUnmount(\'' + x.d + '\')">Unmount</button></td>';
-            tb.appendChild(tr);
+                tr(x.m === 'RW' ? 'rw' : 'ro') +
+                '</span></td><td><button class="btn btn-d btn-sm" onclick="doUnmount(\'' + x.d + '\')">' + tr('unmount_btn') + '</button></td>';
+            tb.appendChild(tr_el);
         });
         document.getElementById('mc').textContent = mts.length + ' mount' + (mts.length !== 1 ? 's' : '');
         document.getElementById('qs-mounts').textContent = mts.length;
@@ -705,23 +887,23 @@ function refreshStatus() {
 /* ═══ Scan ═══ */
 function doScan() {
     var b = document.getElementById('btn-scan');
-    b.disabled = true; b.innerHTML = '<span class="spin"></span> Scanning';
+    b.disabled = true; b.innerHTML = '<span class="spin"></span> ' + tr('scanning');
     window.chrome.webview.postMessage({ command: 'GUI_SCAN' });
-    setTimeout(function() { b.disabled = false; b.textContent = 'Scan disks'; }, 30000);
+    setTimeout(function() { b.disabled = false; b.textContent = tr('scan_btn'); }, 30000);
 }
 
 function showScan(pts) {
     var b = document.getElementById('btn-scan');
-    b.disabled = false; b.textContent = 'Scan disks';
+    b.disabled = false; b.textContent = tr('scan_btn');
     var c = document.getElementById('scan-out');
     if (!pts || !pts.length) {
-        c.innerHTML = '<div class="card" style="margin-top:12px;"><div class="empty">No ext4 partitions found.<br>Make sure your Linux disk is connected.</div></div>';
+        c.innerHTML = '<div class="card" style="margin-top:12px;"><div class="empty">' + tr('no_partitions') + '</div></div>';
         return;
     }
-    var h = '<div style="margin:16px 0 10px;font-size:12px;color:var(--text2);">' + pts.length + ' partition' + (pts.length > 1 ? 's' : '') + ' found</div>';
+    var h = '<div style="margin:16px 0 10px;font-size:12px;color:var(--text2);">' + pts.length + ' ' + tr('parts_found') + '</div>';
     pts.forEach(function(p, i) {
         h += '<div class="si"><div><div class="nm">' + esc(p.name) + '</div><div class="pt">' + esc(p.path) + '</div></div>' +
-            '<button class="btn btn-p btn-sm" onclick="mountP(' + i + ')">Mount</button></div>';
+            '<button class="btn btn-p btn-sm" onclick="mountP(' + i + ')">' + tr('mount_btn') + '</button></div>';
     });
     c.innerHTML = h;
     window._sc = pts;
@@ -732,7 +914,7 @@ function mountP(i) {
     var drv = document.getElementById('sc-drv').value;
     var mode = document.querySelector('input[name="sc-mode"]:checked').value;
     cmd('MOUNT_PARTITION ' + drv + ' ' + mode + ' ' + p.path, function(r) {
-        if (r.startsWith('OK')) { toast('Mounted on ' + drv + ':', 'ok'); refreshStatus(); refreshDrv(); }
+        if (r.startsWith('OK')) { toast(tr('mounted_on') + ' ' + drv + ':', 'ok'); refreshStatus(); refreshDrv(); }
         else { toast(r.replace('ERROR ', ''), 'err'); }
     });
 }
@@ -755,6 +937,18 @@ function setMode() { window.chrome.webview.postMessage({ command: 'GUI_SET_MODE'
 function setDbg() { window.chrome.webview.postMessage({ command: 'GUI_SET_DEBUG', value: document.getElementById('s-dbg').checked }); }
 
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/* ═══ Keyboard shortcuts ═══ */
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+        switch(e.key) {
+            case 'm': case 'M': e.preventDefault(); go('mount'); break;
+            case 'k': case 'K': e.preventDefault(); go('scan'); break;
+            case 's': case 'S': e.preventDefault(); go('status'); break;
+            case ',': e.preventDefault(); go('settings'); break;
+        }
+    }
+});
 
 /* ═══ Auto-refresh ═══ */
 setInterval(function() { if (document.getElementById('p-status').classList.contains('on')) refreshStatus(); }, 5000);

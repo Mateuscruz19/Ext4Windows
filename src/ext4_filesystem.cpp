@@ -492,12 +492,14 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetSecurityByName(FSP_FILE_SYSTEM* FileSystem,
         if (mode & 0100) owner_mask |= 0x001200A0;  // execute
         if (owner_mask == 0) owner_mask = 0x00120089; // fallback: read
 
-        // Map ext4 others bits (0-2) to a Windows access mask
-        DWORD other_mask = 0;
-        if (mode & 0004) other_mask |= 0x00120089;  // read
-        if (mode & 0002) other_mask |= 0x00120116;  // write
-        if (mode & 0001) other_mask |= 0x001200A0;  // execute
-        if (other_mask == 0) other_mask = 0x00120089; // fallback: read
+        // Map ext4 permissions for Everyone (WD).
+        // Windows doesn't have uid/gid — the current user IS the owner.
+        // So we grant Everyone the OWNER-level permissions, not the
+        // "others" bits. This ensures the user can write to directories
+        // like /root (mode 755) where "others" have no write access.
+        // We still restrict based on owner bits, so ext4 readonly files
+        // (mode 444) remain read-only in Windows too.
+        DWORD other_mask = owner_mask;
 
         // Build SDDL string:
         //   O:WD   = Owner is Everyone (WD = World)
