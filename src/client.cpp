@@ -174,20 +174,46 @@ static std::string to_utf8(const wchar_t* wide)
 
 int client_main(int argc, wchar_t* argv[])
 {
-    // argv[0] = "ext4windows"
-    // argv[1] = subcommand ("mount", "unmount", "status", "quit")
-    // argv[2..] = arguments
+    // Find the subcommand index — skip flags like --debug that may
+    // appear before the subcommand. This way both of these work:
+    //   ext4windows --debug mount test.img
+    //   ext4windows mount --debug test.img
+    //
+    // In Python terms, this is like using argparse with a global
+    // --debug flag that can appear anywhere in the command line.
+    int sub_idx = 0;
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] != L'-') {
+            sub_idx = i;
+            break;
+        }
+    }
 
-    if (argc < 2) {
+    if (sub_idx == 0) {
         fprintf(stderr, "  Error: no subcommand\n");
         return 1;
     }
 
-    std::wstring subcmd = argv[1];
+    std::wstring subcmd = argv[sub_idx];
 
     // --- mount ---
     if (subcmd == L"mount") {
-        if (argc < 3) {
+        // Find the image path: first non-flag arg after the subcommand
+        // that isn't a drive letter
+        int path_idx = 0;
+        for (int i = sub_idx + 1; i < argc; i++) {
+            if (argv[i][0] == L'-') continue;  // skip flags
+            // Check if it looks like a drive letter (1-2 chars, A-Z)
+            size_t len = wcslen(argv[i]);
+            wchar_t first = towupper(argv[i][0]);
+            if (len <= 2 && first >= L'A' && first <= L'Z' &&
+                (len == 1 || argv[i][1] == L':'))
+                continue;  // it's a drive letter, not the path
+            path_idx = i;
+            break;
+        }
+
+        if (path_idx == 0) {
             fprintf(stderr, "  Usage: ext4windows mount <path> [drive:] [--rw]\n");
             return 1;
         }
@@ -195,15 +221,20 @@ int client_main(int argc, wchar_t* argv[])
         // Convert to absolute path so the server (which may have a
         // different working directory) can find the file.
         wchar_t abs_path[MAX_PATH] = {};
-        GetFullPathNameW(argv[2], MAX_PATH, abs_path, nullptr);
+        GetFullPathNameW(argv[path_idx], MAX_PATH, abs_path, nullptr);
         std::string source = to_utf8(abs_path);
         std::string drive = "";
-        bool rw = false;
+        // Default to read-write — most users expect to be able to edit
+        // files. Use --ro flag to explicitly mount as read-only.
+        bool rw = true;
 
-        // Parse remaining args
-        for (int i = 3; i < argc; i++) {
+        // Parse remaining args (skip the subcommand and path)
+        for (int i = sub_idx + 1; i < argc; i++) {
+            if (i == path_idx) continue;  // already handled
             if (wcscmp(argv[i], L"--rw") == 0) {
                 rw = true;
+            } else if (wcscmp(argv[i], L"--ro") == 0) {
+                rw = false;
             } else if (wcslen(argv[i]) >= 1 && wcslen(argv[i]) <= 2
                        && argv[i][0] >= L'A' && argv[i][0] <= L'Z') {
                 // Drive letter like "Z" or "Z:"
@@ -230,18 +261,27 @@ int client_main(int argc, wchar_t* argv[])
             }
         }
 
-        std::string cmd = "MOUNT " + source + " " + drive;
+        // Protocol: "MOUNT <drive> [RW] <source>"
+        // Path comes LAST so it can contain spaces.
+        std::string cmd = "MOUNT " + drive;
         if (rw) cmd += " RW";
+        else    cmd += " RO";
+        cmd += " " + source;
         return send_and_print(cmd);
     }
 
     // --- unmount ---
     if (subcmd == L"unmount") {
-        if (argc < 3) {
+        // Find drive letter arg (first non-flag after subcommand)
+        int drive_idx = 0;
+        for (int i = sub_idx + 1; i < argc; i++) {
+            if (argv[i][0] != L'-') { drive_idx = i; break; }
+        }
+        if (drive_idx == 0) {
             fprintf(stderr, "  Usage: ext4windows unmount <drive:>\n");
             return 1;
         }
-        char letter = static_cast<char>(argv[2][0]);
+        char letter = static_cast<char>(argv[drive_idx][0]);
         if (letter >= 'a' && letter <= 'z') letter -= 32;
         std::string cmd = "UNMOUNT " + std::string(1, letter);
         return send_and_print(cmd);
@@ -259,12 +299,14 @@ int client_main(int argc, wchar_t* argv[])
 
     // --- scan ---
     if (subcmd == L"scan") {
-        // Parse flags
-        bool rw = false;
+        // Parse flags — default to read-write like mount
+        bool rw = true;
         std::string drive = "";
-        for (int i = 2; i < argc; i++) {
+        for (int i = sub_idx + 1; i < argc; i++) {
             if (wcscmp(argv[i], L"--rw") == 0) {
                 rw = true;
+            } else if (wcscmp(argv[i], L"--ro") == 0) {
+                rw = false;
             } else if (wcslen(argv[i]) >= 1 && wcslen(argv[i]) <= 2
                        && ((argv[i][0] >= L'A' && argv[i][0] <= L'Z')
                         || (argv[i][0] >= L'a' && argv[i][0] <= L'z'))) {
@@ -274,72 +316,104 @@ int client_main(int argc, wchar_t* argv[])
             }
         }
 
-        // Send SCAN to server (server has admin privileges for disk access)
-        // Ensure server is running first
-        if (!is_server_running()) {
-            printf("  Starting server...\n");
-            if (!start_server() || !wait_for_server()) {
-                fprintf(stderr, "  Error: could not start server\n");
-                return 1;
+        // Scan runs LOCALLY in the client process (not via server pipe).
+        // Why? Because scan needs admin privileges to open \\.\PhysicalDrive
+        // devices. The server is a background process that may have been
+        // started without admin. The client, on the other hand, runs in the
+        // user's terminal — if they launched it as admin, we have the
+        // privileges we need right here.
+        //
+        // In Python terms, this is like calling the function directly
+        // instead of sending an RPC to a worker process that might not
+        // have the right permissions.
+
+        // Check if we have admin privileges. If not, re-launch ourselves
+        // as admin using ShellExecuteExW with "runas" verb. This triggers
+        // a UAC (User Account Control) prompt — that Windows dialog that
+        // asks "Do you want to allow this app to make changes?"
+        //
+        // ShellExecuteExW docs:
+        // https://learn.microsoft.com/en-us/windows/win32/api/shellapi/
+        //   nf-shellapi-shellexecuteexw
+        // "runas" verb docs:
+        // https://learn.microsoft.com/en-us/windows/win32/api/shellapi/
+        //   ns-shellapi-shellexecuteinfow
+        {
+            BOOL elevated = FALSE;
+            HANDLE token = nullptr;
+            if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+                TOKEN_ELEVATION elev = {};
+                DWORD size = sizeof(elev);
+                if (GetTokenInformation(token, TokenElevation, &elev,
+                                         sizeof(elev), &size))
+                    elevated = elev.TokenIsElevated;
+                CloseHandle(token);
+            }
+
+            if (!elevated) {
+                // Not admin — re-launch this exact command line as admin.
+                // GetCommandLineW() returns the full command line string
+                // that Windows used to launch this process (including exe
+                // path and all arguments).
+                //
+                // In Python, this would be like:
+                //   subprocess.run(sys.argv, shell=True, runas='admin')
+                //
+                // Docs: https://learn.microsoft.com/en-us/windows/win32/
+                //   api/processenv/nf-processenv-getcommandlinew
+                wchar_t exe_path[MAX_PATH] = {};
+                GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+
+                // Rebuild args: "scan [drive] [--rw]"
+                std::wstring args = L"scan";
+                for (int i = 2; i < argc; i++) {
+                    args += L" ";
+                    args += argv[i];
+                }
+
+                SHELLEXECUTEINFOW sei = {};
+                sei.cbSize = sizeof(sei);
+                sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+                sei.lpVerb = L"runas";      // Triggers UAC elevation
+                sei.lpFile = exe_path;
+                sei.lpParameters = args.c_str();
+                sei.nShow = SW_SHOWNORMAL;  // Show the elevated console
+
+                if (!ShellExecuteExW(&sei)) {
+                    fprintf(stderr, "  Error: Administrator access required for scanning.\n");
+                    fprintf(stderr, "  Run this command from an elevated prompt, or accept the UAC dialog.\n");
+                    return 1;
+                }
+
+                // Wait for the elevated process to finish
+                WaitForSingleObject(sei.hProcess, INFINITE);
+                DWORD exit_code = 0;
+                GetExitCodeProcess(sei.hProcess, &exit_code);
+                CloseHandle(sei.hProcess);
+                return static_cast<int>(exit_code);
             }
         }
 
-        // Connect to pipe
-        HANDLE pipe = INVALID_HANDLE_VALUE;
-        for (int attempt = 0; attempt < 10; attempt++) {
-            pipe = CreateFileW(PIPE_NAME, GENERIC_READ | GENERIC_WRITE,
-                               0, nullptr, OPEN_EXISTING, 0, nullptr);
-            if (pipe != INVALID_HANDLE_VALUE) break;
-            if (GetLastError() == ERROR_PIPE_BUSY)
-                WaitNamedPipeW(PIPE_NAME, 2000);
-            else break;
-        }
-        if (pipe == INVALID_HANDLE_VALUE) {
-            fprintf(stderr, "  Error: could not connect to server\n");
-            return 1;
-        }
-        DWORD mode = PIPE_READMODE_MESSAGE;
-        SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr);
+        auto partitions = scan_ext4_partitions();
 
-        // Send SCAN command
-        pipe_send(pipe, "SCAN");
-        std::string response = pipe_recv(pipe);
-        CloseHandle(pipe);
-
-        if (response.empty() || response.substr(0, 5) == "ERROR") {
-            fprintf(stderr, "  %s\n", response.empty()
-                    ? "Error: no response from server" : response.c_str());
-            return 1;
+        if (partitions.empty()) {
+            printf("  No ext4 partitions found.\n");
+            printf("  Make sure your Linux disk is connected.\n");
+            return 0;
         }
 
-        // Parse response: "OK N partition(s) found\n0|display|devpath\n..."
-        std::istringstream iss(response);
-        std::string header;
-        std::getline(iss, header);
-
+        // Build results list from the scan
         struct ScanResult {
             std::string display;
             std::string device_path;
         };
         std::vector<ScanResult> results;
 
-        std::string line;
-        while (std::getline(iss, line)) {
-            if (line.empty()) continue;
-            // Format: index|display_name|device_path
-            size_t sep1 = line.find('|');
-            size_t sep2 = line.find('|', sep1 + 1);
-            if (sep1 == std::string::npos || sep2 == std::string::npos) continue;
+        for (auto& p : partitions) {
             ScanResult r;
-            r.display = line.substr(sep1 + 1, sep2 - sep1 - 1);
-            r.device_path = line.substr(sep2 + 1);
+            r.display = to_utf8(p.display_name.c_str());
+            r.device_path = to_utf8(p.device_path.c_str());
             results.push_back(r);
-        }
-
-        if (results.empty()) {
-            printf("  No ext4 partitions found.\n");
-            printf("  Make sure your Linux disk is connected and you're running as admin.\n");
-            return 0;
         }
 
         // Display partitions

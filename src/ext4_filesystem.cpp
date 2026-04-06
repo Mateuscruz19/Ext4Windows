@@ -438,41 +438,68 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetSecurityByName(FSP_FILE_SYSTEM* FileSystem,
     if (PSecurityDescriptorSize) {
         // Read ext4 mode bits for this file
         uint32_t mode = 0;
-        ext4_mode_get(path.c_str(), &mode);
+        int mode_rc = ext4_mode_get(path.c_str(), &mode);
+        dbg("  mode_get('%s') rc=%d mode=0%03o", path.c_str(), mode_rc, mode);
 
-        // Build SDDL based on ext4 permissions
-        // Start with owner and group as Administrators
-        std::wstring sddl = L"O:BAG:BAD:";
+        // Build a Windows security descriptor from ext4 permissions.
+        //
+        // We use SDDL (Security Descriptor Definition Language) — a
+        // string format that describes "who can do what". Think of it
+        // like chmod notation but for Windows.
+        //
+        // We use NUMERIC access masks (hex) instead of symbolic rights
+        // (like GR, GW) because concatenated symbolic rights (GRGWGX)
+        // are unreliable across Windows versions.
+        //
+        // The access mask bits we care about:
+        //   0x00120089 = FILE_GENERIC_READ (read files, list dirs)
+        //   0x00120116 = FILE_GENERIC_WRITE (write files, create)
+        //   0x001200A0 = FILE_GENERIC_EXECUTE (traverse dirs)
+        //   0x001F01FF = FILE_ALL_ACCESS (full control)
+        //
+        // Docs: https://learn.microsoft.com/en-us/windows/win32/secauthz/
+        //       security-descriptor-definition-language
+        // Docs: https://learn.microsoft.com/en-us/windows/win32/fileio/
+        //       file-access-rights-constants
 
-        // Owner permissions (bits 6-8) → map to BA (Administrators)
-        {
-            std::wstring owner_rights;
-            if (mode & 0400) owner_rights += L"GR";  // owner read
-            if (mode & 0200) owner_rights += L"GW";  // owner write
-            if (mode & 0100) owner_rights += L"GX";  // owner execute
-            if (owner_rights.empty()) owner_rights = L"GR"; // at least read
-            sddl += L"(A;;" + owner_rights + L";;;BA)";
-        }
+        // Map ext4 owner bits (6-8) to a Windows access mask
+        DWORD owner_mask = 0;
+        if (mode & 0400) owner_mask |= 0x00120089;  // read
+        if (mode & 0200) owner_mask |= 0x00120116;  // write
+        if (mode & 0100) owner_mask |= 0x001200A0;  // execute
+        if (owner_mask == 0) owner_mask = 0x00120089; // fallback: read
 
-        // Others permissions (bits 0-2) → map to WD (Everyone)
-        {
-            std::wstring other_rights;
-            if (mode & 0004) other_rights += L"GR";  // others read
-            if (mode & 0002) other_rights += L"GW";  // others write
-            if (mode & 0001) other_rights += L"GX";  // others execute
-            if (other_rights.empty()) other_rights = L"GR"; // at least read
-            sddl += L"(A;;" + other_rights + L";;;WD)";
-        }
+        // Map ext4 others bits (0-2) to a Windows access mask
+        DWORD other_mask = 0;
+        if (mode & 0004) other_mask |= 0x00120089;  // read
+        if (mode & 0002) other_mask |= 0x00120116;  // write
+        if (mode & 0001) other_mask |= 0x001200A0;  // execute
+        if (other_mask == 0) other_mask = 0x00120089; // fallback: read
+
+        // Build SDDL string:
+        //   O:WD   = Owner is Everyone (WD = World)
+        //   G:WD   = Group is Everyone
+        //   D:P    = Protected DACL (won't inherit from parent)
+        //   (A;;mask;;;BA) = Allow Administrators the owner-level access
+        //   (A;;mask;;;WD) = Allow Everyone the others-level access
+        wchar_t sddl[256];
+        swprintf(sddl, 256,
+            L"O:WDG:WDD:P(A;;0x%08lx;;;BA)(A;;0x%08lx;;;WD)",
+            owner_mask, other_mask);
+
+        dbg("  SDDL: '%ls'", sddl);
 
         PSECURITY_DESCRIPTOR sd = nullptr;
         ULONG sd_size = 0;
 
         if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                sddl.c_str(), SDDL_REVISION_1, &sd, &sd_size))
+                sddl, SDDL_REVISION_1, &sd, &sd_size))
         {
-            // Fallback: if SDDL parsing fails, use simple full-access
+            dbg("  SDDL parse FAILED err=%lu, using full-access fallback",
+                GetLastError());
+            // Fallback: full access to Everyone
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                L"O:BAG:BAD:(A;;0x1f01ff;;;WD)", SDDL_REVISION_1,
+                L"O:WDG:WDD:P(A;;0x001f01ff;;;WD)", SDDL_REVISION_1,
                 &sd, &sd_size);
         }
 
