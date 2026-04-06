@@ -197,77 +197,83 @@ int client_main(int argc, wchar_t* argv[])
     std::wstring subcmd = argv[sub_idx];
 
     // --- mount ---
+    // Supports multiple images at once:
+    //   ext4windows mount a.img b.img c.img
+    //   ext4windows mount a.img Z: --ro
+    //
+    // Each image gets the next free drive letter (Z, Y, X, ...).
+    // If only one image, a specific drive letter can be given.
     if (subcmd == L"mount") {
-        // Find the image path: first non-flag arg after the subcommand
-        // that isn't a drive letter
-        int path_idx = 0;
+        bool rw = true;
+        std::string explicit_drive = "";
+        std::vector<std::wstring> paths;
+
+        // Collect paths, flags, and optional drive letter
         for (int i = sub_idx + 1; i < argc; i++) {
-            if (argv[i][0] == L'-') continue;  // skip flags
+            if (wcscmp(argv[i], L"--rw") == 0) { rw = true; continue; }
+            if (wcscmp(argv[i], L"--ro") == 0) { rw = false; continue; }
+            if (wcscmp(argv[i], L"--debug") == 0) continue;
+
             // Check if it looks like a drive letter (1-2 chars, A-Z)
             size_t len = wcslen(argv[i]);
             wchar_t first = towupper(argv[i][0]);
             if (len <= 2 && first >= L'A' && first <= L'Z' &&
-                (len == 1 || argv[i][1] == L':'))
-                continue;  // it's a drive letter, not the path
-            path_idx = i;
-            break;
+                (len == 1 || argv[i][1] == L':')) {
+                explicit_drive = std::string(1, static_cast<char>(first));
+                continue;
+            }
+
+            // It's a path — convert to absolute
+            wchar_t abs_path[MAX_PATH] = {};
+            GetFullPathNameW(argv[i], MAX_PATH, abs_path, nullptr);
+            paths.push_back(abs_path);
         }
 
-        if (path_idx == 0) {
-            fprintf(stderr, "  Usage: ext4windows mount <path> [drive:] [--rw]\n");
+        if (paths.empty()) {
+            fprintf(stderr, "  Usage: ext4windows mount <path> [path2 ...] [drive:] [--rw|--ro]\n");
             return 1;
         }
 
-        // Convert to absolute path so the server (which may have a
-        // different working directory) can find the file.
-        wchar_t abs_path[MAX_PATH] = {};
-        GetFullPathNameW(argv[path_idx], MAX_PATH, abs_path, nullptr);
-        std::string source = to_utf8(abs_path);
-        std::string drive = "";
-        // Default to read-write — most users expect to be able to edit
-        // files. Use --ro flag to explicitly mount as read-only.
-        bool rw = true;
+        // For each path, pick a drive letter and send MOUNT
+        int errors = 0;
+        DWORD used = GetLogicalDrives();
 
-        // Parse remaining args (skip the subcommand and path)
-        for (int i = sub_idx + 1; i < argc; i++) {
-            if (i == path_idx) continue;  // already handled
-            if (wcscmp(argv[i], L"--rw") == 0) {
-                rw = true;
-            } else if (wcscmp(argv[i], L"--ro") == 0) {
-                rw = false;
-            } else if (wcslen(argv[i]) >= 1 && wcslen(argv[i]) <= 2
-                       && argv[i][0] >= L'A' && argv[i][0] <= L'Z') {
-                // Drive letter like "Z" or "Z:"
-                drive = std::string(1, static_cast<char>(argv[i][0]));
-            } else if (wcslen(argv[i]) >= 1 && wcslen(argv[i]) <= 2
-                       && argv[i][0] >= L'a' && argv[i][0] <= L'z') {
-                drive = std::string(1, static_cast<char>(argv[i][0] - 32));
-            }
-        }
+        for (size_t pi = 0; pi < paths.size(); pi++) {
+            std::string source = to_utf8(paths[pi].c_str());
 
-        // Auto-select drive letter if not specified
-        if (drive.empty()) {
-            DWORD used = GetLogicalDrives();
-            for (char letter = 'Z'; letter >= 'D'; letter--) {
-                int bit = letter - 'A';
-                if (!(used & (1 << bit))) {
-                    drive = std::string(1, letter);
-                    break;
+            // Use explicit drive only for single-image mount
+            std::string drive = "";
+            if (paths.size() == 1 && !explicit_drive.empty()) {
+                drive = explicit_drive;
+            } else {
+                // Auto-select next free letter (Z down to D)
+                for (char letter = 'Z'; letter >= 'D'; letter--) {
+                    int bit = letter - 'A';
+                    if (!(used & (1 << bit))) {
+                        drive = std::string(1, letter);
+                        used |= (1 << bit); // Mark as used for next iteration
+                        break;
+                    }
+                }
+                if (drive.empty()) {
+                    fprintf(stderr, "  Error: no free drive letter for %s\n",
+                            source.c_str());
+                    errors++;
+                    continue;
                 }
             }
-            if (drive.empty()) {
-                fprintf(stderr, "  Error: no free drive letter\n");
-                return 1;
-            }
+
+            // Protocol: "MOUNT <drive> [RW|RO] <source>"
+            std::string cmd = "MOUNT " + drive;
+            if (rw) cmd += " RW";
+            else    cmd += " RO";
+            cmd += " " + source;
+
+            int rc = send_and_print(cmd);
+            if (rc != 0) errors++;
         }
 
-        // Protocol: "MOUNT <drive> [RW] <source>"
-        // Path comes LAST so it can contain spaces.
-        std::string cmd = "MOUNT " + drive;
-        if (rw) cmd += " RW";
-        else    cmd += " RO";
-        cmd += " " + source;
-        return send_and_print(cmd);
+        return errors > 0 ? 1 : 0;
     }
 
     // --- unmount ---
