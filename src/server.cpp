@@ -26,7 +26,81 @@
 #include <sstream>
 #include <vector>
 #include <sddl.h>
+#include <shlobj.h>
 #include <thread>
+
+// ── Drive Icon Helpers ──────────────────────────────────
+// Set a custom icon for a drive letter in the Windows Registry.
+// This makes the drive show our app icon in Explorer instead of
+// the generic hard drive icon.
+//
+// Registry path:
+//   HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\
+//     DriveIcons\<letter>\DefaultIcon
+//
+// The value format is "path_to_exe,icon_index" — Windows loads
+// the icon resource from the exe. Index 0 is the first icon.
+//
+// Using HKCU (current user) so no admin privileges needed.
+// HKLM would apply to all users but requires admin.
+//
+// In Python:
+//   import winreg
+//   key = winreg.CreateKey(winreg.HKEY_CURRENT_USER,
+//       r"Software\Microsoft\Windows\CurrentVersion\Explorer"
+//       r"\DriveIcons\Z\DefaultIcon")
+//   winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f"{exe},0")
+//
+// Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+//       winreg/nf-winreg-regcreateKeyexw
+
+static void set_drive_icon(wchar_t drive_letter)
+{
+    wchar_t exe_path[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+
+    // Build: "C:\...\ext4windows.exe",0
+    std::wstring icon_value = L"\"";
+    icon_value += exe_path;
+    icon_value += L"\",0";
+
+    // Build registry key path
+    wchar_t key_path[256];
+    swprintf(key_path, 256,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer"
+        L"\\DriveIcons\\%c\\DefaultIcon", drive_letter);
+
+    HKEY key;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, key_path, 0, nullptr,
+                         0, KEY_SET_VALUE, nullptr, &key, nullptr)
+        == ERROR_SUCCESS)
+    {
+        RegSetValueExW(key, nullptr, 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(icon_value.c_str()),
+            static_cast<DWORD>((icon_value.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(key);
+        dbg("DriveIcon: set for %c:", static_cast<char>(drive_letter));
+
+        // Notify Explorer to refresh the icon cache
+        SHChangeNotify(SHCNE_DRIVEADD, SHCNF_PATHW,
+            (std::wstring(1, drive_letter) + L":\\").c_str(), nullptr);
+    }
+}
+
+static void remove_drive_icon(wchar_t drive_letter)
+{
+    wchar_t key_path[256];
+    swprintf(key_path, 256,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer"
+        L"\\DriveIcons\\%c", drive_letter);
+
+    // Delete the DefaultIcon subkey, then the drive letter key
+    RegDeleteTreeW(HKEY_CURRENT_USER, key_path);
+    dbg("DriveIcon: removed for %c:", static_cast<char>(drive_letter));
+
+    SHChangeNotify(SHCNE_DRIVEREMOVED, SHCNF_PATHW,
+        (std::wstring(1, drive_letter) + L":\\").c_str(), nullptr);
+}
 
 // --- MountManager ---
 
@@ -45,6 +119,7 @@ MountManager::~MountManager()
             if (entry->bdev && entry->destroy_fn)
                 entry->destroy_fn(entry->bdev);
         } catch (...) {}
+        remove_drive_icon(letter);
     }
     mounts_.clear();
 }
@@ -106,6 +181,7 @@ std::string MountManager::MountImage(const std::wstring& image_path,
     entry->fs = std::move(fs);
 
     mounts_[drive_letter] = std::move(entry);
+    set_drive_icon(drive_letter);
     NotifyTray();
 
     char msg[512];
@@ -166,6 +242,7 @@ std::string MountManager::MountPartition(const std::wstring& device_path,
     entry->fs = std::move(fs);
 
     mounts_[drive_letter] = std::move(entry);
+    set_drive_icon(drive_letter);
     NotifyTray();
 
     // Convert device path to UTF-8 for the response
@@ -211,6 +288,7 @@ std::string MountManager::Unmount(wchar_t drive_letter)
     }
 
     mounts_.erase(it);
+    remove_drive_icon(drive_letter);
     NotifyTray();
 
     char msg[128];
@@ -607,6 +685,102 @@ int run_server()
     // Create system tray icon and run Win32 message loop
     TrayIcon tray(manager);
     manager.SetTrayIcon(&tray);
+
+    // ── Background update check ─────────────────────────────
+    // Check GitHub for a newer release on startup. Runs in a
+    // background thread so it doesn't block the server.
+    //
+    // Uses PowerShell to fetch the GitHub API (simpler than
+    // WinHTTP for a single request). Compares the latest tag
+    // with our compiled-in version.
+    //
+    // In Python, this would be:
+    //   r = requests.get("https://api.github.com/repos/.../releases/latest")
+    //   if r.json()["tag_name"] > f"v{current_version}":
+    //       show_notification("Update available!")
+    //
+    // Docs: https://docs.github.com/en/rest/releases/releases
+    std::thread update_thread([&tray]() {
+        Sleep(5000);  // Wait 5s before checking (let server start)
+
+        dbg("UpdateCheck: starting");
+
+        // Write a PowerShell one-liner to temp file and run it.
+        // The script fetches the latest release tag from GitHub.
+        wchar_t temp_dir[MAX_PATH] = {};
+        GetTempPathW(MAX_PATH, temp_dir);
+        std::wstring result_file = std::wstring(temp_dir)
+            + L"ext4windows_update.txt";
+        DeleteFileW(result_file.c_str());
+
+        // PowerShell command: fetch latest release tag from GitHub API
+        std::wstring ps_cmd =
+            L"-NoProfile -ExecutionPolicy Bypass -Command \""
+            L"try { "
+            L"[Net.ServicePointManager]::SecurityProtocol = "
+            L"[Net.SecurityProtocolType]::Tls12; "
+            L"$r = Invoke-RestMethod -Uri "
+            L"'https://api.github.com/repos/Mateuscruz19/Ext4Windows"
+            L"/releases/latest' -TimeoutSec 10; "
+            L"$r.tag_name | Out-File -Encoding ascii '"
+            + result_file + L"'"
+            L" } catch { }\"";
+
+        STARTUPINFOW si = {};
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi = {};
+
+        if (!CreateProcessW(
+                L"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                const_cast<LPWSTR>(ps_cmd.c_str()),
+                nullptr, nullptr, FALSE,
+                CREATE_NO_WINDOW,
+                nullptr, nullptr, &si, &pi)) {
+            dbg("UpdateCheck: failed to launch PowerShell");
+            return;
+        }
+
+        WaitForSingleObject(pi.hProcess, 30000);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+
+        // Read the result file
+        FILE* f = _wfopen(result_file.c_str(), L"r");
+        if (!f) {
+            dbg("UpdateCheck: no result file (network error?)");
+            return;
+        }
+        char tag[64] = {};
+        if (!fgets(tag, sizeof(tag), f)) {
+            fclose(f);
+            return;
+        }
+        fclose(f);
+        DeleteFileW(result_file.c_str());
+
+        // Trim whitespace/newline
+        size_t len = strlen(tag);
+        while (len > 0 && (tag[len - 1] == '\n' || tag[len - 1] == '\r'
+                           || tag[len - 1] == ' '))
+            tag[--len] = '\0';
+
+        dbg("UpdateCheck: latest=%s current=v%s", tag, EXT4W_VERSION);
+
+        // Compare: tag is like "v1.0.5", our version is "1.0.5"
+        std::string latest = tag;
+        std::string current = std::string("v") + EXT4W_VERSION;
+
+        if (latest > current && latest.size() > 1) {
+            dbg("UpdateCheck: new version available!");
+            wchar_t msg[128];
+            swprintf_s(msg, L"Version %hs is available. You have v%hs.",
+                       tag, EXT4W_VERSION);
+            tray.ShowBalloon(L"Ext4Windows Update", msg);
+        } else {
+            dbg("UpdateCheck: up to date");
+        }
+    });
+    update_thread.detach();
 
     // Message loop — required for the tray icon to receive events.
     // This blocks until PostQuitMessage(0) is called (by QUIT command
