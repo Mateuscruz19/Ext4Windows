@@ -102,7 +102,10 @@ void TrayIcon::RemoveTrayIcon()
 
 void TrayIcon::Update()
 {
+    size_t prev_count = prev_mount_count_;
     size_t count = manager_.ActiveCount();
+    prev_mount_count_ = count;
+
     if (count == 0)
         wcscpy_s(nid_.szTip, L"Ext4Windows - No active mounts");
     else
@@ -110,6 +113,46 @@ void TrayIcon::Update()
 
     nid_.uFlags = NIF_TIP;
     Shell_NotifyIconW(NIM_MODIFY, &nid_);
+
+    // Show a balloon (toast) notification when mounts change.
+    // Balloon notifications are the small pop-up messages that
+    // appear above the system tray — like when Windows says
+    // "USB device connected" or "Updates available".
+    //
+    // NIF_INFO tells Shell_NotifyIconW to show a balloon.
+    // NIIF_INFO gives it the blue info icon.
+    //
+    // In Python, this would be like:
+    //   from win10toast import ToastNotifier
+    //   toast.show_toast("Ext4Windows", "Mounted on Z:")
+    //
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+    //       shellapi/ns-shellapi-notifyicondataw
+    if (count > prev_count) {
+        // New mount added
+        wchar_t msg[128];
+        swprintf_s(msg, L"%zu mount(s) active", count);
+        ShowBalloon(L"Drive mounted", msg);
+    } else if (count < prev_count && prev_count > 0) {
+        // Mount removed
+        if (count == 0)
+            ShowBalloon(L"Drive unmounted", L"No active mounts");
+        else {
+            wchar_t msg[128];
+            swprintf_s(msg, L"%zu mount(s) remaining", count);
+            ShowBalloon(L"Drive unmounted", msg);
+        }
+    }
+}
+
+void TrayIcon::ShowBalloon(const wchar_t* title, const wchar_t* message)
+{
+    nid_.uFlags = NIF_INFO;
+    wcscpy_s(nid_.szInfoTitle, title);
+    wcscpy_s(nid_.szInfo, message);
+    nid_.dwInfoFlags = NIIF_INFO;  // Blue info icon
+    Shell_NotifyIconW(NIM_MODIFY, &nid_);
+    dbg("TrayIcon: balloon '%ls: %ls'", title, message);
 }
 
 void TrayIcon::ShowContextMenu()

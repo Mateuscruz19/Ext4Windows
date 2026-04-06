@@ -44,6 +44,7 @@ private:
     NOTIFYICONDATAW nid_ = {};
     MountManager& manager_;
     HICON icon_ = nullptr;
+    size_t prev_mount_count_ = 0;  // Track mount count for notifications
 
     // Check if auto-start is currently enabled (registry Run key)
     bool IsAutoStartEnabled();
@@ -52,6 +53,9 @@ private:
 
     // Launch the interactive terminal (ext4windows.exe with no args)
     void LaunchInteractive();
+
+    // Show a balloon (toast) notification above the tray icon
+    void ShowBalloon(const wchar_t* title, const wchar_t* message);
 
     static const UINT WM_TRAYICON = WM_APP + 1;
     static const UINT IDM_OPEN = 39999;
