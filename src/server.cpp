@@ -19,12 +19,12 @@
 #include "tray_icon.hpp"
 #include "blockdev_file.hpp"
 #include "blockdev_partition.hpp"
-#include "partition_scanner.hpp"
 #include "debug_log.hpp"
 
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <vector>
 #include <sddl.h>
 #include <thread>
 
@@ -180,39 +180,6 @@ std::string MountManager::MountPartition(const std::wstring& device_path,
              utf8_path.c_str(), static_cast<char>(drive_letter),
              read_write ? "read-write" : "read-only");
     return msg;
-}
-
-std::string MountManager::Scan()
-{
-    // Scan for ext4 partitions (requires admin privileges)
-    auto partitions = scan_ext4_partitions();
-
-    if (partitions.empty())
-        return "OK 0 partitions found";
-
-    std::ostringstream oss;
-    oss << "OK " << partitions.size() << " partition(s) found";
-
-    for (size_t i = 0; i < partitions.size(); i++) {
-        auto& p = partitions[i];
-
-        // Convert wide strings to UTF-8
-        int len1 = WideCharToMultiByte(CP_UTF8, 0, p.display_name.c_str(), -1,
-                                        nullptr, 0, nullptr, nullptr);
-        std::string display(len1 - 1, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, p.display_name.c_str(), -1,
-                             display.data(), len1, nullptr, nullptr);
-
-        int len2 = WideCharToMultiByte(CP_UTF8, 0, p.device_path.c_str(), -1,
-                                        nullptr, 0, nullptr, nullptr);
-        std::string devpath(len2 - 1, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, p.device_path.c_str(), -1,
-                             devpath.data(), len2, nullptr, nullptr);
-
-        oss << "\n" << i << "|" << display << "|" << devpath;
-    }
-
-    return oss.str();
 }
 
 std::string MountManager::Unmount(wchar_t drive_letter)
@@ -451,9 +418,8 @@ static std::string dispatch_command(MountManager& manager,
         return manager.MountPartition(wdevice, drive_letter, read_write);
     }
 
-    if (action == "SCAN") {
-        return manager.Scan();
-    }
+    // SCAN is handled client-side (needs admin privileges that the
+    // server may not have). See client.cpp scan command.
 
     if (action == "UNMOUNT") {
         std::string drive_str;
@@ -484,12 +450,57 @@ static void pipe_server_thread(MountManager& manager)
     // Build a security descriptor that restricts pipe access to the
     // current user only. Without this, any user on the system could
     // connect and issue mount commands (privilege escalation risk).
-    // SDDL: D:(A;;GA;;;CU) = Allow Generic All to Creator/Owner User
+    //
+    // We get the current user's SID from the process token and build
+    // an SDDL string like "D:(A;;GA;;;S-1-5-21-xxx)" that grants
+    // full access only to that specific user.
+    //
+    // In Python, this would be like:
+    //   import os, win32security
+    //   sid = win32security.GetTokenInformation(token, TokenUser)
+    //   acl.add_access_allowed_ace(sid, GENERIC_ALL)
+    //
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+    //       securitybaseapi/nf-securitybaseapi-gettokeninformation
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+    //       sddl/nf-sddl-convertsidtostringsidw
     SECURITY_ATTRIBUTES sa = {};
     sa.nLength = sizeof(sa);
     PSECURITY_DESCRIPTOR psd = nullptr;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:(A;;GA;;;CU)", SDDL_REVISION_1, &psd, nullptr)) {
+
+    // Get the current user's SID from the process token
+    HANDLE token = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+        DWORD token_size = 0;
+        GetTokenInformation(token, TokenUser, nullptr, 0, &token_size);
+
+        if (token_size > 0) {
+            std::vector<BYTE> token_buf(token_size);
+            if (GetTokenInformation(token, TokenUser, token_buf.data(),
+                                     token_size, &token_size)) {
+                auto* token_user = reinterpret_cast<TOKEN_USER*>(
+                    token_buf.data());
+                LPWSTR sid_str = nullptr;
+                if (ConvertSidToStringSidW(token_user->User.Sid, &sid_str)) {
+                    // Build SDDL: "D:(A;;GA;;;<user-SID>)"
+                    std::wstring sddl = L"D:(A;;GA;;;";
+                    sddl += sid_str;
+                    sddl += L")";
+                    LocalFree(sid_str);
+
+                    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                            sddl.c_str(), SDDL_REVISION_1, &psd, nullptr)) {
+                        dbg("WARNING: SDDL parse failed for pipe security");
+                    } else {
+                        dbg("Pipe security: restricted to current user");
+                    }
+                }
+            }
+        }
+        CloseHandle(token);
+    }
+
+    if (!psd) {
         dbg("WARNING: could not create pipe security descriptor, "
             "falling back to default");
     }
