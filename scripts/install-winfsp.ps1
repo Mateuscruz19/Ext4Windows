@@ -32,7 +32,13 @@ Write-Host "Verified WinFsp SHA-256: $actualSha256"
 
 if ($Install) {
     Write-Host "Installing WinFsp $winFspVersion..."
-    $arguments = @('/i', "`"$destinationPath`"", '/qn', '/norestart')
+    $arguments = @(
+        '/i',
+        "`"$destinationPath`"",
+        'ADDLOCAL=F.Main,F.User,F.Developer',
+        '/qn',
+        '/norestart'
+    )
     $process = Start-Process -FilePath 'msiexec.exe' -ArgumentList $arguments -Wait -PassThru
 
     if ($process.ExitCode -notin @(0, 1641, 3010)) {
