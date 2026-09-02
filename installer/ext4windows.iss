@@ -193,9 +193,7 @@ begin
   end;
 
   if (ExitCode <> 0) and (ExitCode <> 1641) and (ExitCode <> 3010) then begin
-    Result := Format(
-      'The bundled WinFsp installer failed with Windows Installer exit code %d.',
-      [ExitCode]);
+    Result := Format('The bundled WinFsp installer failed with Windows Installer exit code %d.', [ExitCode]);
     Exit;
   end;
 
