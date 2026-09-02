@@ -315,6 +315,13 @@ std::string MountManager::MountImage(const std::wstring& image_path,
     NTSTATUS status = fs->Mount(bdev, mount_point, !read_write, instance_id);
     if (!NT_SUCCESS(status)) {
         destroy_file_blockdev(bdev);
+        if (status == EXT4W_STATUS_ORPHAN_RECOVERY_REQUIRED)
+            return "ERROR Linux orphan recovery is required. Boot Linux, "
+                   "mount this filesystem, shut Linux down cleanly, then "
+                   "retry read-write. Read-only mounting is available.";
+        if (status == EXT4W_STATUS_UNSUPPORTED_RW_FEATURE)
+            return "ERROR This filesystem uses a feature that this build "
+                   "cannot safely write. Mount it read-only instead.";
         char msg[256];
         snprintf(msg, sizeof(msg),
                  "ERROR Mount failed on %c: (status=0x%08lX)",
@@ -384,6 +391,13 @@ std::string MountManager::MountPartition(const std::wstring& device_path,
     NTSTATUS status = fs->Mount(bdev, mount_point, !read_write, instance_id);
     if (!NT_SUCCESS(status)) {
         destroy_partition_blockdev(bdev);
+        if (status == EXT4W_STATUS_ORPHAN_RECOVERY_REQUIRED)
+            return "ERROR Linux orphan recovery is required. Boot Linux, "
+                   "mount this filesystem, shut Linux down cleanly, then "
+                   "retry read-write. Read-only mounting is available.";
+        if (status == EXT4W_STATUS_UNSUPPORTED_RW_FEATURE)
+            return "ERROR This filesystem uses a feature that this build "
+                   "cannot safely write. Mount it read-only instead.";
         char msg[256];
         snprintf(msg, sizeof(msg),
                  "ERROR Mount failed on %c: (status=0x%08lX)",

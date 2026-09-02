@@ -370,6 +370,16 @@ static int mount_and_wait(struct ext4_blockdev* bdev,
             printf("  %s\n", tr(
                 "Try a different letter (like Z: or Y:).",
                 "Tente outra letra (como Z: ou Y:)."));
+        } else if (status == EXT4W_STATUS_ORPHAN_RECOVERY_REQUIRED) {
+            printf("  Error: Linux orphan recovery is required before a "
+                   "read-write mount.\n");
+            printf("  Boot Linux, let it mount this filesystem, then shut "
+                   "Linux down cleanly and retry.\n");
+            printf("  Read-only mounting remains available.\n");
+        } else if (status == EXT4W_STATUS_UNSUPPORTED_RW_FEATURE) {
+            printf("  Error: this filesystem uses a feature that this build "
+                   "cannot safely write.\n");
+            printf("  Mount it read-only instead.\n");
         } else {
             printf("  %s (0x%08lX)\n", tr(
                 "Error: failed to mount",

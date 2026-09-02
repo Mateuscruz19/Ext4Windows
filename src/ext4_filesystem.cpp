@@ -64,6 +64,59 @@ void set_modified_timestamps(const char* path)
         path, now, mtime_rc, ctime_rc);
 }
 
+std::string parent_path_for(const std::string& path,
+                            const std::string& mount_point)
+{
+    if (path == mount_point)
+        return mount_point;
+
+    size_t separator = path.find_last_of('/');
+    if (separator == std::string::npos || separator < mount_point.size())
+        return mount_point;
+
+    return path.substr(0, separator);
+}
+
+bool inherit_created_metadata(const std::string& path,
+                              const std::string& mount_point,
+                              bool is_directory)
+{
+    std::string parent = parent_path_for(path, mount_point);
+    uint32_t parent_uid = 0;
+    uint32_t parent_gid = 0;
+    uint32_t parent_mode = 0;
+
+    int owner_get_rc = ext4_owner_get(parent.c_str(),
+                                      &parent_uid, &parent_gid);
+    int mode_get_rc = ext4_mode_get(parent.c_str(), &parent_mode);
+    if (owner_get_rc != EOK || mode_get_rc != EOK) {
+        dbg("Metadata(create): parent='%s' lookup failed rc=%d/%d",
+            parent.c_str(), owner_get_rc, mode_get_rc);
+        return false;
+    }
+
+    // Windows has no direct UID/GID mapping for this filesystem. Inheriting
+    // the parent owner makes files created inside a Linux user's home belong
+    // to that user instead of root. Permission bits follow the parent's
+    // access classes: 0700 -> 0600/0700, 0755 -> 0644/0755, and
+    // 0777 -> 0666/0777. A setgid directory also passes its setgid bit to a
+    // newly created child directory, matching normal Linux group behavior.
+    uint32_t child_mode = is_directory
+        ? (parent_mode & 0777u)
+        : (parent_mode & 0666u);
+    if (is_directory && (parent_mode & 02000u))
+        child_mode |= 02000u;
+
+    int owner_set_rc = ext4_owner_set(path.c_str(), parent_uid, parent_gid);
+    int mode_set_rc = ext4_mode_set(path.c_str(), child_mode);
+    dbg("Metadata(create): '%s' parent='%s' uid=%u gid=%u mode=0%04o "
+        "rc=%d/%d",
+        path.c_str(), parent.c_str(), parent_uid, parent_gid,
+        child_mode, owner_set_rc, mode_set_rc);
+
+    return owner_set_rc == EOK && mode_set_rc == EOK;
+}
+
 } // namespace
 
 // Global mutex shared by ALL Ext4FileSystem instances.
@@ -172,6 +225,96 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
         return STATUS_UNSUCCESSFUL;
     }
     dbg("Mount: device registered OK");
+
+    // Probe read-write requests with a logical read-only mount first. This
+    // lets us reject orphan recovery state that bundled lwext4 cannot safely
+    // process. If Linux left ORPHAN_PRESENT set but the checksummed orphan file
+    // is valid and completely empty, clear only that superblock feature bit.
+    if (!read_only) {
+        dbg("Mount: probing superblock read-only before read-write mount");
+        rc = ext4_mount(device_name_.c_str(), mount_point_.c_str(), true);
+        if (rc != EOK) {
+            dbg("Mount: read-only probe mount failed rc=%d", rc);
+            ext4_device_unregister(device_name_.c_str());
+            bdev_ = nullptr;
+            return STATUS_UNSUCCESSFUL;
+        }
+
+        struct ext4_sblock* sb = nullptr;
+        rc = ext4_get_sblock(mount_point_.c_str(), &sb);
+        if (rc != EOK || !sb) {
+            dbg("Mount: superblock probe failed rc=%d", rc);
+            ext4_umount(mount_point_.c_str());
+            ext4_device_unregister(device_name_.c_str());
+            bdev_ = nullptr;
+            return STATUS_UNSUCCESSFUL;
+        }
+
+        uint32_t last_orphan = ext4_get32(sb, last_orphan);
+        uint32_t ro_features = ext4_get32(sb, features_read_only);
+        uint16_t state = ext4_get16(sb, state);
+        bool orphan_recovery_required =
+            last_orphan != 0 ||
+            (state & EXT4_SUPERBLOCK_STATE_ORPHAN_FS) != 0;
+
+        dbg("Mount: probe last_orphan=%u ro_features=0x%08X "
+            "state=0x%04X",
+            last_orphan, ro_features, state);
+
+        if (!orphan_recovery_required &&
+            (ro_features & EXT4_FRO_COM_ORPHAN_PRESENT) != 0) {
+            bool orphan_file_empty = false;
+            int orphan_rc = ext4_orphan_file_check_empty(
+                mount_point_.c_str(), &orphan_file_empty);
+            dbg("Mount: orphan-file validation rc=%d empty=%d",
+                orphan_rc, (int)orphan_file_empty);
+
+            if (orphan_rc != EOK || !orphan_file_empty) {
+                orphan_recovery_required = true;
+            } else {
+                ro_features &= ~EXT4_FRO_COM_ORPHAN_PRESENT;
+                ext4_set32(sb, features_read_only, ro_features);
+                int clear_rc = ext4_sb_write(bdev_, sb);
+                if (clear_rc != EOK) {
+                    dbg("Mount: failed to clear verified-empty "
+                        "ORPHAN_PRESENT rc=%d", clear_rc);
+                    ext4_umount(mount_point_.c_str());
+                    ext4_device_unregister(device_name_.c_str());
+                    bdev_ = nullptr;
+                    return STATUS_UNSUCCESSFUL;
+                }
+                dbg("Mount: verified orphan file is empty; cleared stale "
+                    "ORPHAN_PRESENT");
+            }
+        }
+
+        uint32_t unsupported_ro = ro_features & ~CONFIG_SUPPORTED_FRO_COM;
+
+        int probe_umount_rc = ext4_umount(mount_point_.c_str());
+        if (probe_umount_rc != EOK) {
+            dbg("Mount: read-only probe unmount failed rc=%d",
+                probe_umount_rc);
+            ext4_device_unregister(device_name_.c_str());
+            bdev_ = nullptr;
+            return STATUS_UNSUCCESSFUL;
+        }
+
+        if (orphan_recovery_required) {
+            dbg("Mount: refusing read-write mount: Linux orphan recovery "
+                "is required");
+            ext4_device_unregister(device_name_.c_str());
+            bdev_ = nullptr;
+            return EXT4W_STATUS_ORPHAN_RECOVERY_REQUIRED;
+        }
+
+        if (unsupported_ro != 0) {
+            dbg("Mount: refusing read-write mount: unsupported read-only "
+                "compatible features 0x%08X", unsupported_ro);
+            ext4_device_unregister(device_name_.c_str());
+            bdev_ = nullptr;
+            return EXT4W_STATUS_UNSUPPORTED_RW_FEATURE;
+        }
+    }
 
     dbg("Mount: calling ext4_mount('%s', '%s', %d)",
         device_name_.c_str(), mount_point_.c_str(), (int)read_only);
@@ -653,6 +796,16 @@ NTSTATUS NTAPI Ext4FileSystem::OnCreate(FSP_FILE_SYSTEM* FileSystem,
         if (rc != EOK)
             return STATUS_UNSUCCESSFUL;
         ext4_fclose(&f);
+    }
+
+    if (!inherit_created_metadata(path, self->mount_point_, is_directory)) {
+        dbg("Create: failed to apply inherited metadata, rolling back '%s'",
+            path.c_str());
+        if (is_directory)
+            ext4_dir_rm(path.c_str());
+        else
+            ext4_fremove(path.c_str());
+        return STATUS_UNSUCCESSFUL;
     }
 
     // lwext4 deliberately leaves timestamp updates to its caller. Without

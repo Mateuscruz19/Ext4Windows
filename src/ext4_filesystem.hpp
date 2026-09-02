@@ -23,6 +23,8 @@
 extern "C" {
 #include <ext4.h>
 #include <ext4_blockdev.h>
+#include <ext4_misc.h>
+#include <ext4_super.h>
 }
 
 #include <string>
@@ -30,6 +32,14 @@ extern "C" {
 #include <set>
 #include <vector>
 #include <functional>
+
+// Ext4Windows-specific mount failures. These distinguish a filesystem that
+// needs Linux recovery from a filesystem whose features are only safe to
+// expose read-only through the bundled lwext4 version.
+constexpr NTSTATUS EXT4W_STATUS_ORPHAN_RECOVERY_REQUIRED =
+    static_cast<NTSTATUS>(0xC0E40001u);
+constexpr NTSTATUS EXT4W_STATUS_UNSUPPORTED_RW_FEATURE =
+    static_cast<NTSTATUS>(0xC0E40002u);
 
 // Context stored per open file/directory handle.
 struct Ext4FileContext {
