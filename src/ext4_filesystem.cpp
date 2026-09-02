@@ -843,8 +843,10 @@ NTSTATUS NTAPI Ext4FileSystem::OnWrite(FSP_FILE_SYSTEM* FileSystem,
     std::memset(&f, 0, sizeof(f));
 
     int rc = ext4_fopen(&f, path.c_str(), "r+b");
-    if (rc != EOK)
+    if (rc != EOK) {
+        dbg("Write: fopen failed rc=%d", rc);
         return STATUS_UNSUCCESSFUL;
+    }
 
     uint64_t file_size = ext4_fsize(&f);
     uint64_t write_offset = WriteToEndOfFile ? file_size : Offset;
@@ -863,6 +865,8 @@ NTSTATUS NTAPI Ext4FileSystem::OnWrite(FSP_FILE_SYSTEM* FileSystem,
 
     rc = ext4_fseek(&f, write_offset, SEEK_SET);
     if (rc != EOK) {
+        dbg("Write: fseek failed rc=%d file_size=%llu offset=%llu",
+            rc, file_size, write_offset);
         ext4_fclose(&f);
         return STATUS_UNSUCCESSFUL;
     }
@@ -871,8 +875,11 @@ NTSTATUS NTAPI Ext4FileSystem::OnWrite(FSP_FILE_SYSTEM* FileSystem,
     rc = ext4_fwrite(&f, Buffer, write_length, &bytes_written);
     ext4_fclose(&f);
 
-    if (rc != EOK)
+    if (rc != EOK || bytes_written != write_length) {
+        dbg("Write: fwrite failed rc=%d requested=%lu written=%zu",
+            rc, write_length, bytes_written);
         return STATUS_UNSUCCESSFUL;
+    }
 
     *PBytesTransferred = static_cast<ULONG>(bytes_written);
 
@@ -1052,14 +1059,21 @@ NTSTATUS NTAPI Ext4FileSystem::OnSetFileSize(FSP_FILE_SYSTEM* FileSystem,
     std::memset(&f, 0, sizeof(f));
 
     int rc = ext4_fopen(&f, path.c_str(), "r+b");
-    if (rc != EOK)
+    if (rc != EOK) {
+        dbg("SetFileSize: fopen failed rc=%d", rc);
         return STATUS_UNSUCCESSFUL;
+    }
 
+    uint64_t old_size = ext4_fsize(&f);
+    dbg("SetFileSize: truncate old_size=%llu new_size=%llu",
+        old_size, NewSize);
     rc = ext4_ftruncate(&f, NewSize);
     ext4_fclose(&f);
 
-    if (rc != EOK)
+    if (rc != EOK) {
+        dbg("SetFileSize: ext4_ftruncate failed rc=%d", rc);
         return STATUS_UNSUCCESSFUL;
+    }
 
     set_modified_timestamps(path.c_str());
 
