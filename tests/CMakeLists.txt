@@ -53,6 +53,11 @@ target_include_directories(test_blockdev PRIVATE ${TEST_INCLUDES})
 target_link_libraries(test_blockdev PRIVATE catch2_main lwext4)
 target_compile_definitions(test_blockdev PRIVATE UNICODE _UNICODE NOMINMAX)
 
+add_executable(test_modern_ext4 test_modern_ext4.cpp)
+target_include_directories(test_modern_ext4 PRIVATE ${TEST_INCLUDES})
+target_link_libraries(test_modern_ext4 PRIVATE catch2_main lwext4)
+target_compile_definitions(test_modern_ext4 PRIVATE UNICODE _UNICODE NOMINMAX)
+
 # Register all tests with CTest
 enable_testing()
 add_test(NAME validation    COMMAND test_validation)
@@ -61,3 +66,4 @@ add_test(NAME timestamps    COMMAND test_timestamps)
 add_test(NAME permissions   COMMAND test_permissions)
 add_test(NAME format_size   COMMAND test_format_size)
 add_test(NAME blockdev      COMMAND test_blockdev)
+add_test(NAME modern_ext4   COMMAND test_modern_ext4)

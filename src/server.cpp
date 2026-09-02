@@ -29,6 +29,93 @@
 #include <shlobj.h>
 #include <thread>
 
+// Raw disk handles require Administrator access. The server normally runs as
+// the desktop user, so open the partition in a short elevated helper and have
+// that helper duplicate the handle back into this server process. The main
+// executable already implements the internal --open-device helper command.
+static bool process_is_elevated()
+{
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        return false;
+
+    TOKEN_ELEVATION elevation = {};
+    DWORD size = sizeof(elevation);
+    bool elevated = GetTokenInformation(token, TokenElevation, &elevation,
+                                         sizeof(elevation), &size) &&
+                    elevation.TokenIsElevated;
+    CloseHandle(token);
+    return elevated;
+}
+
+static HANDLE open_partition_elevated(const std::wstring& device_path,
+                                      bool read_only)
+{
+    wchar_t temp_dir[MAX_PATH] = {};
+    if (!GetTempPathW(MAX_PATH, temp_dir))
+        return INVALID_HANDLE_VALUE;
+
+    wchar_t temp_name[96] = {};
+    swprintf(temp_name, 96, L"ext4windows_handle_%lu_%llu.txt",
+             GetCurrentProcessId(),
+             static_cast<unsigned long long>(GetTickCount64()));
+    std::wstring temp_file = std::wstring(temp_dir) + temp_name;
+    DeleteFileW(temp_file.c_str());
+
+    wchar_t exe_path[MAX_PATH] = {};
+    if (!GetModuleFileNameW(nullptr, exe_path, MAX_PATH))
+        return INVALID_HANDLE_VALUE;
+
+    wchar_t pid[32] = {};
+    swprintf(pid, 32, L"%lu", GetCurrentProcessId());
+
+    std::wstring args = L"--open-device \"";
+    args += device_path;
+    args += L"\" ";
+    args += pid;
+    args += L" \"";
+    args += temp_file;
+    args += L"\"";
+    if (!read_only)
+        args += L" --rw";
+
+    dbg("MountPartition: requesting elevated raw handle");
+
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.lpVerb = L"runas";
+    sei.lpFile = exe_path;
+    sei.lpParameters = args.c_str();
+    sei.nShow = SW_HIDE;
+
+    if (!ShellExecuteExW(&sei)) {
+        dbg("MountPartition: elevation failed err=%lu", GetLastError());
+        return INVALID_HANDLE_VALUE;
+    }
+
+    DWORD wait = WaitForSingleObject(sei.hProcess, 60000);
+    CloseHandle(sei.hProcess);
+    if (wait != WAIT_OBJECT_0) {
+        dbg("MountPartition: elevated helper timed out");
+        return INVALID_HANDLE_VALUE;
+    }
+
+    FILE* file = _wfopen(temp_file.c_str(), L"r");
+    if (!file)
+        return INVALID_HANDLE_VALUE;
+
+    unsigned long long value = 0;
+    if (fscanf(file, "%llu", &value) != 1)
+        value = 0;
+    fclose(file);
+    DeleteFileW(temp_file.c_str());
+
+    return value
+        ? reinterpret_cast<HANDLE>(static_cast<uintptr_t>(value))
+        : INVALID_HANDLE_VALUE;
+}
+
 // ── Drive Icon Helpers ──────────────────────────────────
 // Set a custom icon for a drive letter in the Windows Registry.
 // This makes the drive show our app icon in Explorer instead of
@@ -268,9 +355,17 @@ std::string MountManager::MountPartition(const std::wstring& device_path,
         return msg;
     }
 
-    // Create block device from raw partition
-    struct ext4_blockdev* bdev = create_partition_blockdev(
-        device_path.c_str(), !read_write);
+    // Create the raw block device. A non-elevated background server obtains
+    // an Administrator-opened handle through the helper above, then retains
+    // that duplicated handle for the lifetime of the mount.
+    struct ext4_blockdev* bdev = nullptr;
+    if (process_is_elevated()) {
+        bdev = create_partition_blockdev(device_path.c_str(), !read_write);
+    } else {
+        HANDLE handle = open_partition_elevated(device_path, !read_write);
+        if (handle != INVALID_HANDLE_VALUE)
+            bdev = create_partition_blockdev_from_handle(handle, !read_write);
+    }
     if (!bdev) {
         // Convert device path to UTF-8 for the error message
         int len = WideCharToMultiByte(CP_UTF8, 0, device_path.c_str(), -1,

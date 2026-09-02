@@ -24,6 +24,48 @@
 #include <vector>
 #include <sddl.h>
 
+namespace {
+
+constexpr uint64_t WINDOWS_TO_UNIX_EPOCH_TICKS = 116444736000000000ULL;
+
+uint32_t current_unix_time()
+{
+    FILETIME file_time = {};
+    GetSystemTimeAsFileTime(&file_time);
+
+    uint64_t ticks = (static_cast<uint64_t>(file_time.dwHighDateTime) << 32) |
+                     file_time.dwLowDateTime;
+    if (ticks <= WINDOWS_TO_UNIX_EPOCH_TICKS)
+        return 0;
+
+    uint64_t seconds =
+        (ticks - WINDOWS_TO_UNIX_EPOCH_TICKS) / 10000000ULL;
+    return static_cast<uint32_t>(
+        seconds > 0xFFFFFFFFULL ? 0xFFFFFFFFULL : seconds);
+}
+
+void set_created_timestamps(const char* path)
+{
+    uint32_t now = current_unix_time();
+    int atime_rc = ext4_atime_set(path, now);
+    int mtime_rc = ext4_mtime_set(path, now);
+    int ctime_rc = ext4_ctime_set(path, now);
+    int crtime_rc = ext4_crtime_set(path, now);
+    dbg("Timestamps(create): '%s' now=%u rc=%d/%d/%d/%d",
+        path, now, atime_rc, mtime_rc, ctime_rc, crtime_rc);
+}
+
+void set_modified_timestamps(const char* path)
+{
+    uint32_t now = current_unix_time();
+    int mtime_rc = ext4_mtime_set(path, now);
+    int ctime_rc = ext4_ctime_set(path, now);
+    dbg("Timestamps(modify): '%s' now=%u rc=%d/%d",
+        path, now, mtime_rc, ctime_rc);
+}
+
+} // namespace
+
 // Global mutex shared by ALL Ext4FileSystem instances.
 // lwext4 uses global internal state (mount table, device registry),
 // so concurrent access from multiple instances would corrupt it.
@@ -172,7 +214,12 @@ NTSTATUS Ext4FileSystem::Mount(struct ext4_blockdev* bdev, const wchar_t* mount_
     volume_params.SectorsPerAllocationUnit = 8;  // 4KB allocation unit
     volume_params.MaxComponentLength = 255;
     volume_params.FileInfoTimeout = 1000;  // cache metadata for 1 second
-    volume_params.CaseSensitiveSearch = FALSE;
+    // ext4 is case-sensitive. Advertising it as case-insensitive makes
+    // WinFsp normalize existing rename destination components to uppercase
+    // when no separate name-normalization callback is present. Those paths
+    // do not exist on ext4 (for example /HOME instead of /home), so rename
+    // fails. Report the filesystem's real semantics and preserve path case.
+    volume_params.CaseSensitiveSearch = TRUE;
     volume_params.CasePreservedNames = TRUE;
     volume_params.UnicodeOnDisk = TRUE;
     volume_params.PersistentAcls = TRUE;
@@ -490,6 +537,33 @@ NTSTATUS NTAPI Ext4FileSystem::OnGetSecurityByName(FSP_FILE_SYSTEM* FileSystem,
         if (mode & 0400) owner_mask |= 0x00120089;  // read
         if (mode & 0200) owner_mask |= 0x00120116;  // write
         if (mode & 0100) owner_mask |= 0x001200A0;  // execute
+
+        // Windows requires DELETE access on the object for rename/delete,
+        // while POSIX/ext4 controls removal through write+execute permission
+        // on the parent directory. Reflect the ext4 rule in the Windows ACL
+        // so a writable parent does not become an unexpected "Access denied".
+        if (!self->read_only_ && path != self->mount_point_) {
+            std::string parent_path = self->mount_point_;
+            size_t separator = path.find_last_of('/');
+            if (separator != std::string::npos &&
+                separator >= self->mount_point_.size()) {
+                parent_path = path.substr(0, separator);
+            }
+
+            uint32_t parent_mode = 0;
+            if (ext4_mode_get(parent_path.c_str(), &parent_mode) == EOK &&
+                (parent_mode & 0300) == 0300) {
+                owner_mask |= DELETE;
+            }
+        }
+
+        // A writable, searchable directory may remove its children.
+        if (!self->read_only_ &&
+            (file_info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+            (mode & 0300) == 0300) {
+            owner_mask |= FILE_DELETE_CHILD;
+        }
+
         if (owner_mask == 0) owner_mask = 0x00120089; // fallback: read
 
         // Map ext4 permissions for Everyone (WD).
@@ -581,6 +655,10 @@ NTSTATUS NTAPI Ext4FileSystem::OnCreate(FSP_FILE_SYSTEM* FileSystem,
         ext4_fclose(&f);
     }
 
+    // lwext4 deliberately leaves timestamp updates to its caller. Without
+    // this, newly created entries appear in Windows as 1 January 1970.
+    set_created_timestamps(path.c_str());
+
     // Don't keep ext4 handles open — each callback opens its own.
     NTSTATUS status = self->FillFileInfo(path.c_str(), FileInfo);
     if (!NT_SUCCESS(status))
@@ -620,6 +698,8 @@ NTSTATUS NTAPI Ext4FileSystem::OnOverwrite(FSP_FILE_SYSTEM* FileSystem,
     if (rc != EOK)
         return STATUS_UNSUCCESSFUL;
     ext4_fclose(&f);
+
+    set_modified_timestamps(path.c_str());
 
     return self->FillFileInfo(path.c_str(), FileInfo);
 }
@@ -795,6 +875,8 @@ NTSTATUS NTAPI Ext4FileSystem::OnWrite(FSP_FILE_SYSTEM* FileSystem,
         return STATUS_UNSUCCESSFUL;
 
     *PBytesTransferred = static_cast<ULONG>(bytes_written);
+
+    set_modified_timestamps(path.c_str());
 
     return self->FillFileInfo(path.c_str(), FileInfo);
 }
@@ -979,6 +1061,8 @@ NTSTATUS NTAPI Ext4FileSystem::OnSetFileSize(FSP_FILE_SYSTEM* FileSystem,
     if (rc != EOK)
         return STATUS_UNSUCCESSFUL;
 
+    set_modified_timestamps(path.c_str());
+
     return self->FillFileInfo(path.c_str(), FileInfo);
 }
 
@@ -1066,6 +1150,7 @@ NTSTATUS NTAPI Ext4FileSystem::OnRename(FSP_FILE_SYSTEM* FileSystem,
 
     // No ext4 handles to close — we don't keep them open.
     int rc = ext4_frename(old_path.c_str(), new_path.c_str());
+    dbg("Rename: ext4_frename rc=%d", rc);
     if (rc != EOK)
         return STATUS_UNSUCCESSFUL;
 
