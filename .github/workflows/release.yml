@@ -21,30 +21,52 @@ jobs:
         with:
           arch: x64
 
-      - name: Install WinFsp
-        run: choco install winfsp -y
+      - name: Download, verify, and install WinFsp 2.1.25156
+        shell: pwsh
+        run: ./scripts/install-winfsp.ps1 -Destination installer/deps/winfsp-2.1.25156.msi -Install
 
       - name: Configure
-        run: cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -B build -S .
+        run: cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DEXT4W_RELEASE_VERSION=1.2.1-r8.1 -B build -S .
 
       - name: Build
         run: cmake --build build --config Release
 
       - name: Prepare release artifacts
+        shell: pwsh
         run: |
-          mkdir release
-          copy build\ext4windows.exe release\
-          copy build\winfsp-x64.dll release\
+          New-Item -ItemType Directory -Path release | Out-Null
+          Copy-Item build/ext4windows.exe release/
+          Copy-Item build/winfsp-x64.dll release/
+          Copy-Item installer/deps/winfsp-2.1.25156.msi release/
+          Copy-Item LICENSE release/LICENSE.txt
+          Copy-Item assets/ext4windows.ico release/
+          Copy-Item docs/INSTALL.md release/
+          Copy-Item docs/modern-ext4-r8-fix-record.md release/
 
       - name: Create portable zip
-        run: Compress-Archive -Path release\* -DestinationPath Ext4Windows-${{ github.ref_name }}-portable.zip
+        run: Compress-Archive -Path release/* -DestinationPath Ext4Windows-${{ github.ref_name }}-portable.zip
         shell: pwsh
 
       - name: Build installer
+        shell: pwsh
         run: |
           choco install innosetup -y
-          iscc installer\ext4windows.iss
-        shell: cmd
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/ext4windows.iss
+
+      - name: Create SHA-256 manifest
+        shell: pwsh
+        run: |
+          $files = @(
+            "Ext4Windows-${{ github.ref_name }}-portable.zip",
+            "release/ext4windows.exe"
+          ) + (Get-ChildItem installer/Output/*.exe | ForEach-Object FullName)
+
+          $lines = foreach ($file in $files) {
+            $item = Get-Item $file
+            $hash = (Get-FileHash $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($item.Name)"
+          }
+          $lines | Set-Content -Encoding ascii SHA256SUMS.txt
 
       - name: Upload release
         uses: softprops/action-gh-release@v2
@@ -53,3 +75,4 @@ jobs:
             Ext4Windows-${{ github.ref_name }}-portable.zip
             release/ext4windows.exe
             installer/Output/*.exe
+            SHA256SUMS.txt

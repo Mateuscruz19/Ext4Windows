@@ -2,7 +2,7 @@ name: Build & Test
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: [main]
 
@@ -20,11 +20,12 @@ jobs:
         with:
           arch: x64
 
-      - name: Install WinFsp
-        run: choco install winfsp -y
+      - name: Download, verify, and install WinFsp 2.1.25156
+        shell: pwsh
+        run: ./scripts/install-winfsp.ps1 -Install
 
       - name: Configure
-        run: cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -B build -S .
+        run: cmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DEXT4W_RELEASE_VERSION=1.2.1-r8.1 -B build -S .
 
       - name: Build
         run: cmake --build build --config Release
