@@ -16,7 +16,7 @@ import sys
 import shutil
 import zipfile
 
-VERSION = sys.argv[1] if len(sys.argv) > 1 else "1.0.0"
+VERSION = sys.argv[1] if len(sys.argv) > 1 else "1.2.1-r8.1"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD_DIR = os.path.join(PROJECT_ROOT, "build")
 OUTPUT_NAME = f"Ext4Windows-{VERSION}-portable"
@@ -26,6 +26,8 @@ OUTPUT_ZIP = f"{OUTPUT_NAME}.zip"
 FILES = [
     (os.path.join(BUILD_DIR, "ext4windows.exe"), "ext4windows.exe"),
     (os.path.join(BUILD_DIR, "winfsp-x64.dll"), "winfsp-x64.dll"),
+    (os.path.join(PROJECT_ROOT, "installer", "deps", "winfsp-2.1.25156.msi"),
+     "winfsp-2.1.25156.msi"),
     (os.path.join(PROJECT_ROOT, "LICENSE"), "LICENSE"),
 ]
 
@@ -55,10 +57,10 @@ Mount ext4 Linux partitions on Windows.
 
 REQUIREMENTS:
   - Windows 10 or 11 (64-bit)
-  - WinFsp: https://winfsp.dev/rel/
+  - WinFsp 2.1.25156 system driver, bundled in this directory
 
 QUICK START:
-  1. Install WinFsp from the link above
+  1. Install winfsp-2.1.25156.msi if WinFsp 2.1.25156 or newer is not installed
   2. Run ext4windows.exe (interactive menu)
 
 COMMAND LINE:
@@ -69,7 +71,7 @@ COMMAND LINE:
   ext4windows quit
 
 MORE INFO:
-  https://github.com/user/ext4windows
+  https://github.com/BakaValen/Ext4Windows
 """
         zf.writestr(f"{OUTPUT_NAME}/README.txt", readme)
         print(f"  + README.txt")

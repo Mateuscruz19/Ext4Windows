@@ -23,6 +23,7 @@ CMakeUserPresets.json
 *.pdb
 *.ilk
 *.exp
+installer/deps/*.msi
 
 # OS
 Thumbs.db

@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-project(Ext4Windows VERSION 1.1.0 LANGUAGES C CXX)
+project(Ext4Windows VERSION 1.2.1 LANGUAGES C CXX)
+
+set(EXT4W_RELEASE_VERSION "1.2.1-r8.1" CACHE STRING
+    "User-visible Ext4Windows release version")
 
 # Pass version to C++ code as a compile-time define
-add_compile_definitions(EXT4W_VERSION="${CMAKE_PROJECT_VERSION}")
+add_compile_definitions(EXT4W_VERSION="${EXT4W_RELEASE_VERSION}")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

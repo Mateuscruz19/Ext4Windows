@@ -300,6 +300,13 @@ int client_main(int argc, wchar_t* argv[])
 
     // --- quit ---
     if (subcmd == L"quit") {
+        // Stopping an absent server must be a no-op. Starting a new server
+        // merely to send QUIT is surprising during normal use and can make
+        // an uninstaller wait for a daemon that never becomes ready.
+        if (!is_server_running()) {
+            printf("  Server is not running.\n");
+            return 0;
+        }
         return send_and_print("QUIT");
     }
 
