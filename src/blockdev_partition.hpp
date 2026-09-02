@@ -30,7 +30,8 @@ struct ext4_blockdev* create_partition_blockdev(const wchar_t* device_path,
                                                 bool read_only);
 
 // Creates an ext4_blockdev using an already-opened HANDLE.
-// The blockdev takes ownership of the handle (will close it on destroy).
+// The blockdev takes ownership of the handle, retains it across internal
+// probe/remount cycles, and closes it on destroy.
 struct ext4_blockdev* create_partition_blockdev_from_handle(void* handle,
                                                             bool read_only);
 

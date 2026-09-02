@@ -32,6 +32,7 @@ static constexpr uint32_t BLOCK_SIZE = 512;
 struct partition_blockdev_data {
     HANDLE handle;
     bool read_only;
+    bool retain_handle_between_mounts;
     wchar_t path[256];
     uint8_t block_buf[BLOCK_SIZE];
     ext4_blockdev_iface iface;
@@ -191,6 +192,15 @@ static int part_close(struct ext4_blockdev* bdev)
 {
     auto* data = static_cast<partition_blockdev_data*>(bdev->bdif->p_user);
 
+    // A handle duplicated from the elevated helper cannot be reopened by
+    // pathname in this non-elevated process. Keep it alive across the logical
+    // read-only safety probe and the following read-write mount. The owning
+    // block-device object closes it in destroy_partition_blockdev().
+    if (data->retain_handle_between_mounts) {
+        dbg("part_close: retaining inherited handle for remount");
+        return EOK;
+    }
+
     if (data->handle != INVALID_HANDLE_VALUE) {
         CloseHandle(data->handle);
         data->handle = INVALID_HANDLE_VALUE;
@@ -207,6 +217,7 @@ struct ext4_blockdev* create_partition_blockdev(const wchar_t* device_path,
     data->path[255] = L'\0';
     data->handle = INVALID_HANDLE_VALUE;
     data->read_only = read_only;
+    data->retain_handle_between_mounts = false;
 
     // Set up the interface
     std::memset(&data->iface, 0, sizeof(data->iface));
@@ -237,6 +248,7 @@ struct ext4_blockdev* create_partition_blockdev_from_handle(void* handle,
     data->path[255] = L'\0';
     data->handle = static_cast<HANDLE>(handle);
     data->read_only = read_only;
+    data->retain_handle_between_mounts = true;
 
     // Set up the interface
     std::memset(&data->iface, 0, sizeof(data->iface));
