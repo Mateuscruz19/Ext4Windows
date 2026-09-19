@@ -37,6 +37,11 @@ static const GUID LINUX_FS_GUID = {
     { 0x8E, 0x79, 0x3D, 0x69, 0xD8, 0x47, 0x7D, 0xE4 }
 };
 
+static const GUID LINUX_ROOT_X86_64_GUID = {
+    0x4F68BCE3, 0xE8CD, 0x4DB1,
+    { 0x96, 0xE7, 0xFB, 0xCA, 0xF9, 0x84, 0xB7, 0x09 }
+};
+
 // ext4 superblock magic number at offset 0x38 within the superblock
 static const uint16_t EXT4_SUPER_MAGIC = 0xEF53;
 
@@ -161,7 +166,9 @@ std::vector<PartitionInfo> scan_ext4_partitions()
                 // GPT: check for Linux filesystem GUID
                 dbg("  Partition %lu: GPT size=%llu",
                     i, (uint64_t)p.PartitionLength.QuadPart);
-                is_linux = guid_equal(p.Gpt.PartitionType, LINUX_FS_GUID);
+                is_linux =
+                    guid_equal(p.Gpt.PartitionType, LINUX_FS_GUID) ||
+                    guid_equal(p.Gpt.PartitionType, LINUX_ROOT_X86_64_GUID);
             }
 
             if (!is_linux) {
