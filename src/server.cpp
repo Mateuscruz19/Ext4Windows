@@ -516,6 +516,11 @@ std::string MountManager::Status()
     return oss.str();
 }
 
+// ID of the thread running the tray message loop in run_server().
+// `static` keeps it private to this file (like a `_name` in Python).
+// Docs: https://en.cppreference.com/w/cpp/language/storage_duration
+static DWORD g_server_main_thread_id = 0;
+
 std::string MountManager::Quit()
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -530,8 +535,21 @@ std::string MountManager::Quit()
     mounts_.clear();
     quit_requested_ = true;
 
-    // Post WM_QUIT to break the message loop
-    PostQuitMessage(0);
+    // Post WM_QUIT to the MAIN thread's message loop.
+    //
+    // PostQuitMessage() only posts to the queue of the thread that calls it.
+    // The QUIT pipe command runs on the pipe thread, so PostQuitMessage()
+    // there never reached the GetMessage() loop in run_server(): the server
+    // answered "shutting down" but kept running. PostThreadMessageW() lets us
+    // name the target thread explicitly — like putting an item in a specific
+    // queue.Queue in Python instead of "whatever queue belongs to me".
+    //
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+    //       winuser/nf-winuser-postthreadmessagew
+    if (g_server_main_thread_id != 0)
+        PostThreadMessageW(g_server_main_thread_id, WM_QUIT, 0, 0);
+    else
+        PostQuitMessage(0);
 
     return "OK Server shutting down";
 }
@@ -850,6 +868,12 @@ int run_server()
     dbg("Server starting");
 
     MountManager manager;
+
+    // Remember which thread owns the message loop so Quit() can stop it
+    // from any thread (the pipe thread or the tray menu).
+    // Docs: https://learn.microsoft.com/en-us/windows/win32/api/
+    //       processthreadsapi/nf-processthreadsapi-getcurrentthreadid
+    g_server_main_thread_id = GetCurrentThreadId();
 
     // Start pipe listener on a separate thread
     std::thread pipe_thread(pipe_server_thread, std::ref(manager));
