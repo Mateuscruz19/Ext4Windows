@@ -1,13 +1,14 @@
-# Ext4Windows Modern Ext4 installation
+# Ext4Windows installation
 
 ## What the installer contains
 
-The r8.1 setup is an offline installer. It contains:
+The setup is an offline installer. It contains:
 
-- Ext4Windows Modern Ext4;
+- Ext4Windows;
 - the matching `winfsp-x64.dll` user-mode library;
 - the official WinFsp `2.1.25156` MSI;
-- the project license and the complete r8 technical fix record.
+- the project license and the modern ext4 technical fix record
+  (`modern-ext4-r8-fix-record.md`, contributed by @BakaValen).
 
 WinFsp `2.1.25156` is the approved dependency for this release. The official
 MSI SHA-256 is:
@@ -31,20 +32,17 @@ Official WinFsp release:
 
 1. Cleanly unmount every Ext4Windows volume.
 2. Close Ext4Windows, including its tray process.
-3. Run `Ext4Windows-Modern-Ext4-1.2.1-r8.1-setup.exe`.
+3. Run `Ext4Windows-<version>-setup.exe`.
 4. Accept the Administrator prompt.
 5. Leave `Start on Windows login` disabled unless you specifically want it.
 6. Complete setup and restart Windows if setup requests it.
 7. Launch Ext4Windows from the Start menu.
 
-The application is installed separately from the original Ext4Windows build:
+Installing over a previous Ext4Windows version upgrades it in place:
 
 ```text
-C:\Program Files\Ext4Windows Modern Ext4
+C:\Program Files\Ext4Windows
 ```
-
-Both installations can remain on disk, but they use the same server pipe and
-must not run at the same time.
 
 ## Mount a physical ext4 partition
 

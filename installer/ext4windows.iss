@@ -8,22 +8,22 @@
 ;
 ; The installer will be created in the "Output" folder.
 
-#define MyAppName "Ext4Windows Modern Ext4"
-#define MyAppVersion "1.2.1-r8.1"
-#define MyAppPublisher "BakaValen"
-#define MyAppURL "https://github.com/BakaValen/Ext4Windows"
+#define MyAppName "Ext4Windows"
+#define MyAppVersion "1.3.0"
+#define MyAppPublisher "Ext4Windows"
+#define MyAppURL "https://github.com/Mateuscruz19/Ext4Windows"
 #define MyAppExeName "ext4windows.exe"
 #define WinFspMsiName "winfsp-2.1.25156.msi"
 
 [Setup]
-AppId={{1751432F-8ED9-5599-A960-DBD5AF845023}
+AppId={{E4W-2026-EXT4-WINDOWS-DRIVER}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
-OutputBaseFilename=Ext4Windows-Modern-Ext4-{#MyAppVersion}-setup
+OutputBaseFilename=Ext4Windows-{#MyAppVersion}-setup
 SetupIconFile=..\assets\ext4windows.ico
 WizardImageFile=wizard_large.bmp
 WizardSmallImageFile=wizard_small.bmp
@@ -36,7 +36,7 @@ PrivilegesRequired=admin
 AppMutex=Local\Ext4WindowsServer
 UninstallDisplayIcon={app}\{#MyAppExeName}
 LicenseFile=..\LICENSE
-VersionInfoVersion=1.2.1.81
+VersionInfoVersion=1.3.0.0
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -87,7 +87,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Registry]
 ; Auto-start on login (optional)
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
-    ValueType: string; ValueName: "Ext4WindowsModernExt4"; \
+    ValueType: string; ValueName: "Ext4Windows"; \
     ValueData: """{app}\{#MyAppExeName}"" --server"; \
     Tasks: autostart; Flags: uninsdeletevalue
 

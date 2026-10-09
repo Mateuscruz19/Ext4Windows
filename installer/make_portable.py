@@ -16,7 +16,7 @@ import sys
 import shutil
 import zipfile
 
-VERSION = sys.argv[1] if len(sys.argv) > 1 else "1.2.1-r8.1"
+VERSION = sys.argv[1] if len(sys.argv) > 1 else "1.3.0"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD_DIR = os.path.join(PROJECT_ROOT, "build")
 OUTPUT_NAME = f"Ext4Windows-{VERSION}-portable"
@@ -71,7 +71,7 @@ COMMAND LINE:
   ext4windows quit
 
 MORE INFO:
-  https://github.com/BakaValen/Ext4Windows
+  https://github.com/Mateuscruz19/Ext4Windows
 """
         zf.writestr(f"{OUTPUT_NAME}/README.txt", readme)
         print(f"  + README.txt")

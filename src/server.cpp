@@ -893,7 +893,7 @@ int run_server()
             L"[Net.ServicePointManager]::SecurityProtocol = "
             L"[Net.SecurityProtocolType]::Tls12; "
             L"$r = Invoke-RestMethod -Uri "
-            L"'https://api.github.com/repos/BakaValen/Ext4Windows"
+            L"'https://api.github.com/repos/Mateuscruz19/Ext4Windows"
             L"/releases/latest' -TimeoutSec 10; "
             L"$r.tag_name | Out-File -Encoding ascii '"
             + result_file + L"'"
