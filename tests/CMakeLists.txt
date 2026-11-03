@@ -17,6 +17,10 @@ set(TEST_INCLUDES
 
 # --- Unit tests (no ext4/WinFsp dependencies) ---
 
+add_executable(test_scan_results test_scan_results.cpp)
+target_include_directories(test_scan_results PRIVATE ${TEST_INCLUDES})
+target_link_libraries(test_scan_results PRIVATE catch2_main)
+
 add_executable(test_validation test_validation.cpp)
 target_include_directories(test_validation PRIVATE ${TEST_INCLUDES})
 target_link_libraries(test_validation PRIVATE catch2_main)
@@ -60,6 +64,7 @@ target_compile_definitions(test_modern_ext4 PRIVATE UNICODE _UNICODE NOMINMAX)
 
 # Register all tests with CTest
 enable_testing()
+add_test(NAME scan_results  COMMAND test_scan_results)
 add_test(NAME validation    COMMAND test_validation)
 add_test(NAME string_utils  COMMAND test_string_utils)
 add_test(NAME timestamps    COMMAND test_timestamps)
