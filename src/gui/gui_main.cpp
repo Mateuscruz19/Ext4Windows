@@ -36,6 +36,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 #include "gui_main.hpp"
+#include "scan_results.hpp"
 #include "gui_resources.hpp"       // GUI_HTML — the embedded HTML page
 #include "../pipe_protocol.hpp"    // PIPE_NAME, pipe_send, pipe_recv
 #include "../debug_log.hpp"        // g_debug, dbg()
@@ -529,23 +530,13 @@ static void OnWebMessageReceived(const std::wstring& message)
         {
             std::string tpath = to_utf8(temp_file);
             std::ifstream f(tpath);
-            std::string line;
             bool first = true;
-            while (std::getline(f, line)) {
-                if (line.empty()) continue;
-
-                // Parse "device_path|display_name" format
-                size_t sep = line.find('|');
-                if (sep == std::string::npos) continue;
-
-                std::string path = line.substr(0, sep);
-                std::string name = line.substr(sep + 1);
-
+            for (const auto& result : read_scan_results(f)) {
                 if (!first) json += L",";
                 first = false;
 
-                json += L"{\"path\":\"" + json_escape(to_wide(path)) +
-                        L"\",\"name\":\"" + json_escape(to_wide(name)) + L"\"}";
+                json += L"{\"path\":\"" + json_escape(to_wide(result.path)) +
+                        L"\",\"name\":\"" + json_escape(to_wide(result.name)) + L"\"}";
             }
             f.close();
             DeleteFileW(temp_file.c_str());
