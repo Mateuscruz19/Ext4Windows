@@ -1,4 +1,4 @@
-// Ext4Windows — Mount ext4 partitions as Windows drive letters
+// Ext4Windows â€” Mount ext4 partitions as Windows drive letters
 // Copyright (C) 2026 Mateus Cruz
 //
 // This program is free software; you can redistribute it and/or modify
@@ -26,7 +26,96 @@
 
 extern "C" {
 #include <ext4.h>
+#include <ext4_fs.h>
+#include <ext4_mkfs.h>
 }
+
+#include <cstdio>
+#include <ctime>
+#include <string>
+
+// ============================================================
+//  Test image helper
+// ============================================================
+// The integration tests need a real ext4 image. Instead of depending on a
+// file that only exists on one machine, we build a small one in the temp
+// folder the first time a test asks for it, and delete it when the test
+// program exits.
+
+namespace {
+
+struct TestImage {
+    std::string path;
+    bool ok = false;
+
+    TestImage()
+    {
+        char tmp[MAX_PATH] = {};
+        if (!GetTempPathA(MAX_PATH, tmp))
+            return;
+        path = std::string(tmp) + "ext4windows_test_" +
+               std::to_string(GetCurrentProcessId()) + ".img";
+        // lwext4 and our file blockdev accept forward slashes on Windows
+        for (auto& c : path)
+            if (c == '\\') c = '/';
+
+        // 1) Create an 8 MiB file of zeros
+        constexpr uint64_t kSize = 8ull * 1024 * 1024;
+        FILE* f = fopen(path.c_str(), "wb");
+        if (!f)
+            return;
+        static const char zeros[4096] = {};
+        for (uint64_t written = 0; written < kSize; written += sizeof(zeros))
+            fwrite(zeros, 1, sizeof(zeros), f);
+        fclose(f);
+
+        // 2) Format it as ext4 (no journal, 1 KiB blocks)
+        struct ext4_blockdev* bdev = create_file_blockdev(path.c_str());
+        if (!bdev)
+            return;
+        struct ext4_fs fs = {};
+        struct ext4_mkfs_info info = {};
+        info.block_size = 1024;
+        info.journal = false;
+        info.len = kSize;
+        ok = (ext4_mkfs(&fs, bdev, &info, F_SET_EXT4) == EOK);
+        destroy_file_blockdev(bdev);
+        if (!ok)
+            return;
+
+        // 3) mkfs leaves the root directory timestamps at 0 (1970). A real
+        //    filesystem has them set, so stamp the root with the current time.
+        ok = false;
+        bdev = create_file_blockdev(path.c_str());
+        if (!bdev)
+            return;
+        if (ext4_device_register(bdev, "img_setup") == EOK) {
+            if (ext4_mount("img_setup", "/img_setup/", false) == EOK) {
+                uint32_t now = static_cast<uint32_t>(time(nullptr));
+                ok = ext4_atime_set("/img_setup/", now) == EOK &&
+                     ext4_mtime_set("/img_setup/", now) == EOK &&
+                     ext4_ctime_set("/img_setup/", now) == EOK;
+                ext4_umount("/img_setup/");
+            }
+            ext4_device_unregister("img_setup");
+        }
+        destroy_file_blockdev(bdev);
+    }
+
+    ~TestImage()
+    {
+        if (!path.empty())
+            remove(path.c_str());
+    }
+};
+
+const char* test_image_path()
+{
+    static TestImage image;  // built once, on first use
+    return image.ok ? image.path.c_str() : "";
+}
+
+} // namespace
 
 // ============================================================
 //  File Block Device: Create / Destroy
@@ -35,7 +124,7 @@ extern "C" {
 TEST_CASE("create_file_blockdev returns valid pointer for existing file", "[blockdev][file]")
 {
     struct ext4_blockdev* bdev = create_file_blockdev(
-        "C:/Users/Mateus/Ext4Windows/test.img");
+        test_image_path());
     REQUIRE(bdev != nullptr);
     destroy_file_blockdev(bdev);
 }
@@ -68,7 +157,7 @@ TEST_CASE("create_file_blockdev: multiple create/destroy cycles", "[blockdev][fi
     // Ensure no resource leaks over repeated cycles
     for (int i = 0; i < 10; i++) {
         struct ext4_blockdev* bdev = create_file_blockdev(
-            "C:/Users/Mateus/Ext4Windows/test.img");
+            test_image_path());
         REQUIRE(bdev != nullptr);
         destroy_file_blockdev(bdev);
     }
@@ -118,7 +207,7 @@ TEST_CASE("create_partition_blockdev: read-only vs read-write", "[blockdev][part
 TEST_CASE("ext4 mount and unmount cycle", "[blockdev][ext4][integration]")
 {
     struct ext4_blockdev* bdev = create_file_blockdev(
-        "C:/Users/Mateus/Ext4Windows/test.img");
+        test_image_path());
     REQUIRE(bdev != nullptr);
 
     int rc = ext4_device_register(bdev, "test_mount");
@@ -137,7 +226,7 @@ TEST_CASE("ext4 mount and unmount cycle", "[blockdev][ext4][integration]")
 TEST_CASE("ext4 read root directory", "[blockdev][ext4][integration]")
 {
     struct ext4_blockdev* bdev = create_file_blockdev(
-        "C:/Users/Mateus/Ext4Windows/test.img");
+        test_image_path());
     REQUIRE(bdev != nullptr);
 
     REQUIRE(ext4_device_register(bdev, "test_readdir") == EOK);
@@ -170,7 +259,7 @@ TEST_CASE("ext4 read root directory", "[blockdev][ext4][integration]")
 TEST_CASE("ext4 read file contents", "[blockdev][ext4][integration]")
 {
     struct ext4_blockdev* bdev = create_file_blockdev(
-        "C:/Users/Mateus/Ext4Windows/test.img");
+        test_image_path());
     REQUIRE(bdev != nullptr);
 
     REQUIRE(ext4_device_register(bdev, "test_fread") == EOK);
@@ -187,7 +276,7 @@ TEST_CASE("ext4 read file contents", "[blockdev][ext4][integration]")
         CHECK(bytes_read > 0);
         ext4_fclose(&f);
     }
-    // If file doesn't exist, that's OK — we still tested the mount
+    // If file doesn't exist, that's OK â€” we still tested the mount
 
     ext4_umount("/test_fr/");
     ext4_device_unregister("test_fread");
@@ -197,7 +286,7 @@ TEST_CASE("ext4 read file contents", "[blockdev][ext4][integration]")
 TEST_CASE("ext4 get file/dir info", "[blockdev][ext4][integration]")
 {
     struct ext4_blockdev* bdev = create_file_blockdev(
-        "C:/Users/Mateus/Ext4Windows/test.img");
+        test_image_path());
     REQUIRE(bdev != nullptr);
 
     REQUIRE(ext4_device_register(bdev, "test_info") == EOK);
@@ -218,7 +307,7 @@ TEST_CASE("ext4 get file/dir info", "[blockdev][ext4][integration]")
 TEST_CASE("ext4 timestamps are readable", "[blockdev][ext4][integration]")
 {
     struct ext4_blockdev* bdev = create_file_blockdev(
-        "C:/Users/Mateus/Ext4Windows/test.img");
+        test_image_path());
     REQUIRE(bdev != nullptr);
 
     REQUIRE(ext4_device_register(bdev, "test_time") == EOK);
@@ -256,7 +345,7 @@ TEST_CASE("ext4_device_register with null name fails", "[blockdev][ext4][error]"
     // lwext4 may accept nullptr bdev (implementation detail), so instead
     // test that registering with duplicate name fails
     struct ext4_blockdev* bdev = create_file_blockdev(
-        "C:/Users/Mateus/Ext4Windows/test.img");
+        test_image_path());
     REQUIRE(bdev != nullptr);
 
     int rc1 = ext4_device_register(bdev, "dup_test");
